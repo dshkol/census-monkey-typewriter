@@ -44,6 +44,8 @@ All analyses must be organized in the following structure:
 4. **NO RENDERING**: Never attempt to render R Markdown due to persistent pandoc issues - let the user handle final rendering
 5. **Document Meta-Learnings**: Create `analysis-meta-learnings.md` for each project documenting what worked, what didn't, and lessons learned
 
+**Note**: For tactical workflow improvements and session-specific learnings, see `WORKFLOW-LEARNINGS.md` which documents iterative refinements to our analysis process across multiple sessions.
+
 ## **Phase 0: Strategic Deconstruction & Research Design**
 
 Your first step is not to acquire data, but to formulate a comprehensive research plan.
