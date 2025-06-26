@@ -34,13 +34,14 @@ theme_set(theme_minimal(base_size = 12) +
 
 ## Executive Summary
 
-The Basement Dweller Index reveals stark geographic patterns in young adult independence across American metropolitan areas. Our analysis finds that **18.3% of individuals aged 25-34 continue living with parents**, with significant variation across PUMAs ranging from less than 5% in some areas to over 40% in others.
+The Basement Dweller Index reveals important geographic patterns in young adult independence across American states using real Census data. Our analysis finds that **`r round(mean(sample_data$basement_dweller_pct, na.rm = TRUE), 1)`% of individuals aged 18-34 are classified as "child of householder"** (basement dwellers), with significant variation across states.
 
-**Key Findings:**
-- Housing costs explain **67% of the variation** in basement dwelling rates across PUMAs (R² = 0.67, p < 0.001)
-- Unemployment shows a weaker but significant relationship (R² = 0.23, p < 0.01)
-- High-cost metropolitan areas consistently show elevated rates of extended family living
-- The phenomenon is increasingly concentrated in specific geographic areas, suggesting systemic rather than individual factors
+**Key Findings (Using Real Census Data):**
+- **Unemployment rates explain `r round(unemployment_r2 * 100, 1)`% of the variation** in basement dwelling rates (R² = `r round(unemployment_r2, 3)`)
+- **Housing costs show minimal correlation** (R² = `r round(housing_r2, 3)`) with basement dwelling patterns
+- **This contradicts the original hypothesis** that housing affordability would be the primary driver
+- States with highest rates: Puerto Rico (18.5%), Hawaii (18.1%), Mississippi (17.1%)
+- States with lowest rates: New Hampshire (8.0%), North Dakota (8.0%), Vermont (8.2%)
 
 ## Introduction
 
@@ -60,16 +61,17 @@ The "Basement Dweller Index" quantifies this phenomenon geographically, testing 
 
 Our analysis employs American Community Survey (ACS) 5-year estimates at the Public Use Microdata Area (PUMA) level, providing detailed demographic and housing data with sufficient sample sizes for reliable young adult population estimates.
 
-**Primary Variables:**
-- **B09021**: Living arrangements by age (25-34 year olds with parents)
-- **B25077**: Median home values
-- **B25064**: Median gross rent
-- **S2301**: Employment status by age groups
-- **B08303**: Travel time to work (proxy for employment accessibility)
+**Primary Variables (Real Census Data):**
+- **B09021_013**: 18-34 year olds classified as "Child of householder" (basement dwellers)
+- **B09021_008**: Total 18-34 year old population
+- **B25077_001**: Median home values
+- **B25064_001**: Median gross rent
+- **B23025_005**: Unemployed population
+- **B01001_001**: Total population
 
 ### Geographic Scope
 
-Analysis covers all PUMAs in metropolitan statistical areas with populations exceeding 500,000, representing approximately 70% of the national population and capturing diverse housing market conditions.
+Analysis covers all 50 U.S. states plus Puerto Rico and the District of Columbia using state-level ACS data, providing comprehensive national coverage with reliable sample sizes for basement dweller estimates.
 
 ### Analytical Approach
 
@@ -83,77 +85,90 @@ The Basement Dweller Index is calculated as:
 - Robustness checks excluding student populations and recent immigrants
 
 ```{r data-analysis, include=FALSE}
-# Note: Demonstration of analytical approach
-# Actual Census API calls were limited during development
+# REAL Census data analysis using tidycensus API
+# Variables: B09021 (Living arrangements by age)
 
-# Enhanced demonstration data with realistic relationships and uncertainty measures
-set.seed(123)  # For reproducible results
-n_pumas <- 100
-
-# Create demonstration data reflecting realistic patterns
-sample_data <- data.frame(
-  GEOID = paste0("06", sprintf("%03d", 1:n_pumas)),
-  NAME = paste("California PUMA", 1:n_pumas),
-  basement_dweller_pct = pmax(5, pmin(45, rnorm(n_pumas, 18.3, 8.2))),
-  median_home_value = exp(rnorm(n_pumas, 13.2, 0.4)),  # Log-normal distribution
-  median_rent = exp(rnorm(n_pumas, 7.8, 0.3)),
-  unemployment_rate_25_34 = pmax(2, pmin(20, rnorm(n_pumas, 7.1, 3.2))),
-  total_population_25_34 = sample(5000:25000, n_pumas, replace = TRUE)
+# Get REAL basement dweller data from Census API
+real_basement_vars <- c(
+  "B09021_008",  # 18 to 34 years total
+  "B09021_013",  # 18 to 34 years: Child of householder (basement dwellers)
+  "B25077_001",  # Median home value
+  "B25064_001",  # Median gross rent
+  "B01001_001",  # Total population
+  "B23025_005"   # Unemployed
 )
 
-# Add margins of error and enhanced variables
-sample_data <- sample_data %>%
+# Retrieve REAL data from Census API
+real_data <- get_acs(
+  geography = "state",
+  variables = real_basement_vars,
+  year = 2019,
+  survey = "acs5", 
+  output = "wide"
+)
+
+# Clean and calculate REAL basement dweller statistics
+sample_data <- real_data %>%
+  select(
+    GEOID, NAME,
+    young_adults_total = B09021_008E,
+    young_adults_total_moe = B09021_008M,
+    basement_dwellers = B09021_013E, 
+    basement_dwellers_moe = B09021_013M,
+    median_home_value = B25077_001E,
+    home_value_moe = B25077_001M,
+    median_rent = B25064_001E,
+    rent_moe = B25064_001M,
+    total_pop = B01001_001E,
+    unemployed = B23025_005E
+  ) %>%
+  filter(
+    !is.na(basement_dwellers),
+    !is.na(young_adults_total), 
+    young_adults_total > 0,
+    !is.na(median_home_value),
+    !is.na(median_rent)
+  ) %>%
   mutate(
-    # Realistic margins of error for ACS PUMA-level estimates
-    basement_dweller_moe = pmax(0.5, basement_dweller_pct * runif(n_pumas, 0.08, 0.15)),
-    housing_cost_index = scale(log(median_home_value) + log(median_rent))[,1],
-    high_cost = housing_cost_index > median(housing_cost_index),
+    # REAL basement dweller index from Census data
+    basement_dweller_pct = (basement_dwellers / young_adults_total) * 100,
+    basement_dweller_moe = (basement_dwellers_moe / young_adults_total) * 100,
+    
+    # Housing cost index  
+    housing_cost_index = scale(log(median_home_value + 1) + log(median_rent + 1))[,1],
+    
+    # Unemployment rate
+    unemployment_rate = (unemployed / total_pop) * 100,
+    
+    # Categorize states by housing cost
     metro_type = case_when(
-      housing_cost_index > 1 ~ "High-Cost Coastal",
-      housing_cost_index < -1 ~ "Low-Cost Interior", 
-      TRUE ~ "Moderate Sunbelt"
+      housing_cost_index > 0.5 ~ "High-Cost States",
+      housing_cost_index < -0.5 ~ "Low-Cost States", 
+      TRUE ~ "Moderate-Cost States"
     )
   )
 
-# Create correlation with housing costs (enhance realism)
-sample_data$basement_dweller_pct <- sample_data$basement_dweller_pct + 
-  0.6 * scale(sample_data$housing_cost_index)[,1] * sd(sample_data$basement_dweller_pct)
+# Get state boundaries for mapping
+sample_spatial <- states(cb = TRUE, resolution = "20m") %>%
+  filter(!NAME %in% c("Alaska", "Hawaii", "Puerto Rico")) %>%  # Exclude for continental focus
+  left_join(sample_data, by = c("NAME" = "NAME")) %>%
+  filter(!is.na(basement_dweller_pct))
 
-# Create simplified spatial boundaries for mapping demonstration
-create_demo_spatial <- function(data, ncol = 10) {
-  nrow_grid <- ceiling(nrow(data) / ncol)
-  
-  grid_coords <- expand.grid(x = 1:ncol, y = 1:nrow_grid)[1:nrow(data), ]
-  
-  squares <- purrr::map_dfr(1:nrow(data), function(i) {
-    x <- grid_coords$x[i]
-    y <- grid_coords$y[i]
-    
-    coords <- matrix(c(x, y, x+1, y, x+1, y+1, x, y+1, x, y), 
-                     ncol = 2, byrow = TRUE)
-    polygon <- sf::st_polygon(list(coords))
-    
-    tibble(GEOID = data$GEOID[i], geometry = sf::st_sfc(polygon))
-  })
-  
-  squares_sf <- sf::st_sf(squares, crs = 4326)
-  squares_sf %>% left_join(data, by = "GEOID")
-}
-
-# Create spatial demonstration data
-sample_spatial <- create_demo_spatial(sample_data)
-
-# Statistical models
+# Statistical models using REAL data
 model_housing <- lm(basement_dweller_pct ~ housing_cost_index, data = sample_data)
-model_unemployment <- lm(basement_dweller_pct ~ unemployment_rate_25_34, data = sample_data)
-model_combined <- lm(basement_dweller_pct ~ housing_cost_index + unemployment_rate_25_34, data = sample_data)
+model_unemployment <- lm(basement_dweller_pct ~ unemployment_rate, data = sample_data)
+model_combined <- lm(basement_dweller_pct ~ housing_cost_index + unemployment_rate, data = sample_data)
 
-# Extract key statistics
+# Extract key statistics from REAL data
 housing_r2 <- summary(model_housing)$r.squared
 unemployment_r2 <- summary(model_unemployment)$r.squared
 combined_r2 <- summary(model_combined)$r.squared
 
-# Spatial autocorrelation analysis
+# Calculate REAL correlations
+housing_correlation <- cor(sample_data$housing_cost_index, sample_data$basement_dweller_pct, use = "complete.obs")
+unemployment_correlation <- cor(sample_data$unemployment_rate, sample_data$basement_dweller_pct, use = "complete.obs")
+
+# Spatial autocorrelation analysis using REAL state boundaries
 tryCatch({
   sample_neighbors <- poly2nb(sample_spatial, queen = TRUE)
   sample_weights <- nb2listw(sample_neighbors, style = "W", zero.policy = TRUE)
@@ -183,36 +198,41 @@ Across analyzed metropolitan areas, the average Basement Dweller Index is `r rou
 
 **Metropolitan Core vs. Periphery:** Suburban PUMAs show higher rates than urban cores, likely reflecting greater parental housing capacity in suburban areas.
 
-```{r primary-visualization, echo=FALSE, fig.cap="Housing Costs vs Basement Dwelling Rates with Uncertainty"}
-ggplot(sample_data, aes(x = housing_cost_index, y = basement_dweller_pct)) +
+```{r primary-visualization, echo=FALSE, fig.cap="Unemployment vs Basement Dwelling Rates - Real Census Data"}
+ggplot(sample_data, aes(x = unemployment_rate, y = basement_dweller_pct)) +
   geom_errorbar(aes(ymin = basement_dweller_pct - basement_dweller_moe, 
                     ymax = basement_dweller_pct + basement_dweller_moe),
                 width = 0.1, alpha = 0.4, color = "grey60") +
-  geom_point(aes(color = unemployment_rate_25_34), size = 3, alpha = 0.8) +
+  geom_point(aes(color = housing_cost_index), size = 4, alpha = 0.8) +
   geom_smooth(method = "lm", se = TRUE, color = "grey20", linetype = "dashed") +
-  scale_color_viridis_c(name = "Unemployment\nRate (%)", option = "plasma",
-                        labels = function(x) paste0(round(x, 1), "%")) +
+  geom_text(aes(label = ifelse(basement_dweller_pct > 15 | unemployment_rate > 8, 
+                               substr(NAME, 1, 2), "")), 
+            size = 2.5, nudge_y = 0.3) +
+  scale_color_viridis_c(name = "Housing Cost\nIndex", option = "plasma") +
+  scale_x_continuous(labels = function(x) paste0(x, "%")) +
   scale_y_continuous(labels = function(x) paste0(x, "%")) +
   labs(
-    subtitle = "Housing Costs Strongly Predict Basement Dwelling Rates",
-    caption = "Error bars show margins of error from ACS estimates.\nBased on demonstration data using ACS methodology.",
-    x = "Housing Cost Index (standardized)",
+    subtitle = "Real Census Data: Unemployment Predicts Basement Dwelling Rates",
+    caption = "Error bars show margins of error from ACS estimates.\nReal data from American Community Survey 2019.",
+    x = "Unemployment Rate (%)",
     y = "Basement Dweller Index (%)"
   ) +
-  annotate("text", x = max(sample_data$housing_cost_index) * 0.7, 
-           y = max(sample_data$basement_dweller_pct) * 0.9,
-           label = paste("R² =", round(housing_r2, 3)), 
+  annotate("text", x = max(sample_data$unemployment_rate, na.rm = TRUE) * 0.7, 
+           y = max(sample_data$basement_dweller_pct, na.rm = TRUE) * 0.9,
+           label = paste("R² =", round(unemployment_r2, 3)), 
            size = 4, fontface = "bold") +
   theme(legend.position = "right")
 ```
 
 ### Statistical Analysis
 
-**Housing Cost Dominance:** Housing costs explain `r round(housing_r2 * 100, 1)`% of the variance in basement dwelling rates across PUMAs (R² = `r round(housing_r2, 3)`, p < 0.001), demonstrating a strong relationship between housing affordability and young adult independence.
+**Unemployment Primary Driver:** Contrary to the original hypothesis, unemployment rates explain `r round(unemployment_r2 * 100, 1)`% of the variance in basement dwelling rates across states (R² = `r round(unemployment_r2, 3)`), demonstrating that economic distress is the primary factor.
 
-**Unemployment Secondary Role:** Unemployment rates among 25-34 year olds explain only `r round(unemployment_r2 * 100, 1)`% of the variance (R² = `r round(unemployment_r2, 3)`, p < 0.01), indicating a much weaker relationship.
+**Housing Costs Minimal Impact:** Housing costs explain only `r round(housing_r2 * 100, 1)`% of the variance (R² = `r round(housing_r2, 3)`), indicating a much weaker relationship than hypothesized.
 
-**Combined Model:** When both factors are included simultaneously, housing costs remain the dominant predictor while unemployment effects diminish, suggesting housing affordability is the primary driver of geographic variation.
+**Hypothesis Contradiction:** The real Census data contradicts our original hypothesis. **Employment opportunities, not housing affordability, appear to be the primary driver** of young adults living with parents.
+
+**Combined Model:** When both factors are included simultaneously (R² = `r round(combined_r2, 3)`), unemployment remains the dominant predictor while housing cost effects remain minimal.
 
 ```{r choropleth-map, echo=FALSE, fig.cap="Professional Choropleth Map of Basement Dwelling Rates"}
 ggplot(sample_spatial) +
@@ -334,15 +354,16 @@ Following peer review revisions, we maintain **high confidence** in our core fin
 
 ## Conclusions
 
-The Basement Dweller Index successfully demonstrates that young adult independence is increasingly constrained by housing market conditions rather than employment opportunities. The geographic concentration of extended family living in high-cost areas provides clear evidence for housing-centric policy responses.
+The Basement Dweller Index, using real Census data, **contradicts the original hypothesis** and demonstrates that young adult independence is primarily constrained by employment opportunities rather than housing market conditions. States with higher unemployment rates consistently show higher rates of young adults living with parents.
 
 **Key Contributions:**
-- First systematic geographic analysis of young adult independence patterns at sub-metropolitan scale
-- Empirical resolution of housing costs vs unemployment debate in explaining extended family living
-- Policy-relevant identification of areas where housing interventions could promote young adult independence
+- First systematic geographic analysis using real Census data on young adult living arrangements 
+- **Empirical contradiction of housing-centric explanations** - unemployment, not housing costs, drives basement dwelling
+- **Methodology demonstration** of using B09021 table for living arrangement analysis
+- Policy-relevant identification of states where employment interventions could promote young adult independence
 
 **Policy Significance:**
-With housing costs explaining 67% of geographic variation in basement dwelling rates, policymakers have clear evidence for prioritizing housing affordability initiatives to promote young adult independence. The analysis provides specific geographic targeting capabilities for maximum policy impact.
+**Contrary to expectations, unemployment rates explain `r round(unemployment_r2 * 100, 1)`% of variation while housing costs explain only `r round(housing_r2 * 100, 1)`%.** This provides clear evidence for prioritizing **employment and economic development initiatives** rather than housing policy to promote young adult independence.
 
 **Societal Implications:**
 The geographic concentration of extended adolescence has implications beyond individual households, potentially affecting household formation rates, fertility patterns, and intergenerational wealth transfers. Understanding these patterns is crucial for anticipating demographic and economic trends.
@@ -352,7 +373,7 @@ The geographic concentration of extended adolescence has implications beyond ind
 - Causal identification using housing policy changes as natural experiments
 - Analysis of downstream effects on marriage, fertility, and wealth accumulation
 
-The Basement Dweller Index reveals that America's changing transition to adulthood is fundamentally a housing affordability story rather than an employment story. As housing costs continue rising faster than incomes, the geographic patterns identified here are likely to intensify without targeted policy intervention.
+The Basement Dweller Index reveals that America's changing transition to adulthood is fundamentally **an employment story rather than a housing affordability story**. The real Census data contradicts popular assumptions and demonstrates that economic opportunity, not housing costs, drives young adult independence patterns.
 
 ---
 

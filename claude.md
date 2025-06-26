@@ -70,8 +70,128 @@ Before committing to a full analysis, you must validate your plan with prelimina
 
 Retrieve spatial data objects (`sf` class) using `tidycensus`. Your technical work must adhere to the protocols in **Appendix B**.
 
-1.  **Data Retrieval:** Use `get_acs()` or `get_decennial()` with `geometry = TRUE` and `output = "wide"`.
-2.  **Harmonization:** When creating panels, ensure variable and geographic boundary consistency over time. Use spatial interpolation via the `areal` package if necessary.
+### **CRITICAL: Data Integrity Standards**
+**NEVER use simulated or fake data to complete an analysis.** This invalidates all findings and policy recommendations. Always use real Census data via tidycensus API calls. If API constraints prevent data retrieval, acknowledge limitations transparently rather than substituting simulated data.
+
+### **Spatial Data Best Practices**
+
+#### **Geographic Level Selection Guidelines**
+Choose the appropriate geographic unit based on analysis scope and hypothesis requirements:
+
+**Primary Analysis Units:**
+- **National Analysis**: `counties()`, `pumas()`, or `states()` 
+- **State/Regional Analysis**: `counties()`, `tracts()`, or `pumas()` (use tracts for smaller states)
+- **City/Urban Analysis**: `tracts()`, `block_groups()`, or `blocks()` depending on required resolution
+
+**Resolution Guidelines:**
+- **National/State Level**: Use `resolution = "20m"` (simplified geometry for performance)
+- **Local/City Level**: Use full resolution (omit resolution parameter for maximum detail)
+- **Performance Rule**: Simplify geometry when retrieving large geographic coverage, maintain detail for focused analysis
+
+#### **Complete tigris Geography Reference**
+
+| Function | Geographic Unit | Cartographic Resolutions | Years Available | Primary Use Cases |
+|----------|----------------|--------------------------|-----------------|-------------------|
+| `states()` | States | 1:500k, 1:5m, 1:20m | 1990, 2000, 2010- | National overviews, state comparisons |
+| `counties()` | Counties | 1:500k, 1:5m, 1:20m | 1990, 2000, 2010- | **Most common: National/regional analysis** |
+| `tracts()` | Census Tracts | 1:500k | 1990, 2000, 2010- | **Urban/metropolitan detailed analysis** |
+| `block_groups()` | Block Groups | 1:500k | 1990, 2000, 2010- | **Neighborhood-level analysis** |
+| `blocks()` | Census Blocks | TIGER/Line only | 2000, 2010- | **Finest resolution: local studies** |
+| `pumas()` | PUMAs | 1:500k | 2012- | **Alternative to counties for ACS analysis** |
+| `places()` | Cities/Towns | 1:500k | 2011- | Municipal analysis |
+| `zctas()` | ZIP Code Areas | 1:500k | 2000, 2010, 2012- | Postal geography analysis |
+| `congressional_districts()` | Congressional Districts | 1:500k, 1:5m, 1:20m | 2011- | Political geography |
+| `core_based_statistical_areas()` | CBSAs/Metro Areas | 1:500k, 1:5m, 1:20m | 2011- | Metropolitan analysis |
+| `urban_areas()` | Urban Areas | 1:500k | 2012- | Urban vs rural classification |
+
+**Specialized Geography** (ad hoc use only):
+`school_districts()`, `state_legislative_districts()`, `voting_districts()`, `area_water()`, `linear_water()`, `coastline()`, `primary_roads()`, `rails()`, `native_areas()`, `landmarks()`, `military()`
+
+#### **Cartographic vs TIGER/Line Boundary Selection**
+
+**Critical Choice**: Use `cb = TRUE` for cartographic boundary files in most thematic mapping cases.
+
+**Cartographic Boundary Files (`cb = TRUE`)**:
+- **Generalized interior boundaries** - cleaner appearance for thematic maps
+- **Clipped to U.S. shoreline** - eliminates water areas for better visualization
+- **Optimized for mapping** - specifically designed for choropleth maps and visualization
+- **Smaller file sizes** - faster download and rendering
+- **Use for**: Thematic mapping, choropleth maps, national/regional visualization
+
+**TIGER/Line Files (default `cb = FALSE`)**:
+- **Precise boundaries** - exact legal and statistical boundaries
+- **Includes water features** - complete geographic detail
+- **Larger file sizes** - more detailed but slower
+- **Use for**: Spatial analysis requiring precision, local studies, geocoding
+
+**When to Use Each:**
+- **Thematic Mapping**: Always use `cb = TRUE` for cleaner, professional appearance
+- **Spatial Analysis**: Use `cb = FALSE` when boundary precision matters
+- **Performance**: Use `cb = TRUE` for faster downloads and rendering
+
+#### **Technical Implementation**
+1.  **Direct Geometry Retrieval:** Use `get_acs(geometry = TRUE, resolution = "20m")` instead of separate spatial joins. This is more efficient and follows tidycensus book best practices.
+2.  **Cartographic Boundaries:** Use `cb = TRUE` for thematic mapping and visualization for cleaner appearance.
+3.  **Resolution Specification:** Use `resolution = "20m"` for national/state maps, higher resolution for local analysis. This balances detail with performance.
+4.  **Geographic Positioning:** For U.S. maps, always use `tigris::shift_geometry()` to position Alaska and Hawaii appropriately for better aesthetics.
+5.  **National Scale Analysis:** Don't artificially limit to states - national county analysis (3,215 counties) performs well and provides richer geographic patterns.
+
+#### **Geographic Level Decision Matrix**
+
+| Analysis Scope | Geographic Unit | Resolution | Cartographic Boundaries | Example Use Cases |
+|---------------|----------------|------------|------------------------|-------------------|
+| **National Patterns** | `counties()` | `"20m"` | `cb = TRUE` | Basement dweller index, economic indicators |
+| **State Comparisons** | `states()` | `"20m"` | `cb = TRUE` | Policy comparisons, regional trends |
+| **Metropolitan Analysis** | `tracts()` | `"500k"` | `cb = TRUE` for mapping | Housing patterns, commuting analysis |
+| **Neighborhood Studies** | `block_groups()` | Full resolution | `cb = FALSE` for precision | Environmental justice, local services |
+| **Precision Mapping** | `blocks()` | Full resolution | `cb = FALSE` (only option) | Infrastructure planning, micro-geography |
+
+**Quick Decision Rule**: Use `cb = TRUE` for all choropleth maps and thematic visualization; use `cb = FALSE` for spatial analysis requiring boundary precision.
+
+**Example of optimal spatial data retrieval:**
+```r
+# National county thematic mapping
+national_map_data <- get_acs(
+  geography = "county",
+  variables = my_variables,
+  year = 2019,
+  survey = "acs5",
+  output = "wide", 
+  geometry = TRUE,
+  resolution = "20m",
+  cb = TRUE  # Cartographic boundaries for clean mapping
+) %>%
+  shift_geometry()  # Position AK/HI appropriately
+
+# Metropolitan tract analysis for spatial analysis
+metro_analysis_data <- get_acs(
+  geography = "tract",
+  state = "CA",
+  county = "Los Angeles",
+  variables = my_variables,
+  year = 2019,
+  survey = "acs5",
+  output = "wide",
+  geometry = TRUE
+  # cb = FALSE (default) for precise spatial analysis
+  # Full resolution for detailed local analysis
+)
+
+# State-level choropleth mapping
+state_map_data <- get_acs(
+  geography = "state",
+  variables = my_variables,
+  year = 2019,
+  survey = "acs5",
+  output = "wide",
+  geometry = TRUE,
+  resolution = "20m",
+  cb = TRUE  # Clean state boundaries for mapping
+) %>%
+  shift_geometry()
+```
+
+5.  **Harmonization:** When creating panels, ensure variable and geographic boundary consistency over time. Use spatial interpolation via the `areal` package if necessary.
 
 ## **Phase 2: Rigorous Analysis & Causal Inference**
 
@@ -122,8 +242,26 @@ Your final `.Rmd` product must be professional, clear, and aesthetically consist
 ### **Aesthetic & Visualization Consistency**
 
 1.  **Global Theme:** Define a single `ggplot2` theme object at the top of your script and apply it to all plots to ensure consistent typography and layout.
-2.  **Chart Variety:** Move beyond basic plots. Employ a variety of charts to best tell the story, such as lollipop charts, ridgeline plots, dot plots, and advanced scatter plots with regression lines and confidence intervals (`geom_smooth`).
-3.  **Color Protocol (Hierarchy of Rules):**
+
+2.  **Large Dataset Visualization Management:**
+    * **Overplotting Control:** For scatterplots with hundreds or thousands of points, **remove error bars** (they create visual clutter) and use `alpha = 0.4-0.6` transparency with smaller point sizes (`size = 1.5`)
+    * **Example:** 3,215 county scatterplot should use `geom_point(alpha = 0.6, size = 1.5)` not `geom_point(size = 4) + geom_errorbar()`
+    * **Alternative Approaches:** Consider density plots, hexbin plots, or sampling for very large datasets
+
+3.  **Professional Choropleth Standards:**
+    * **Always use `shift_geometry()`** for U.S. maps to position Alaska and Hawaii appropriately
+    * **Color scale optimization:** Use `trans = "sqrt"` and custom breaks for better distribution visualization
+    * **Figure dimensions:** Use larger dimensions (`fig.width=12, fig.height=8`) for national choropleth maps
+    * **Example:** `scale_fill_viridis_c(trans = "sqrt", breaks = c(0, 5, 10, 15, 20, 30, 40))`
+
+4.  **Meaningful Titles and Labels:**
+    * **Focus on insights, not descriptions:** "Employment Opportunities Drive Young Adult Independence" vs "Unemployment vs Basement Dwelling Rates"
+    * **Remove redundant labeling:** Never label as "Real Census data" - all data should be real
+    * **Titles should reflect takeaways:** What does the reader need to understand from this visualization?
+
+5.  **Chart Variety:** Move beyond basic plots. Employ a variety of charts to best tell the story, such as lollipop charts, ridgeline plots, dot plots, and advanced scatter plots with regression lines and confidence intervals (`geom_smooth`).
+
+6.  **Color Protocol (Hierarchy of Rules):**
     * **Primary Rule (Ramps):** For visualizations requiring a continuous or sequential color ramp (e.g., choropleth maps), you **must** use a `viridis` palette (`scale_fill_viridis()`) to ensure accessibility.
     * **Secondary Rule (Single Colors):** For single-color visualizations (e.g., histograms, bar charts, scatter plots), use **dark grey** (`"grey20"` or `"#333333"`) instead of light grey for better visibility and professional appearance.
     * **Tertiary Rule (Categorical):** For visualizations using multiple distinct categories, you **must** use the color specifications provided in the secondary input document that describes the blog's aesthetic standards.
