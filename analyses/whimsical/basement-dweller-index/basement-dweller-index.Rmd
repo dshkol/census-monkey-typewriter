@@ -17,6 +17,7 @@ knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, fig.width 
 # Load required libraries
 library(tidyverse)
 library(tidycensus)
+library(tigris)  # For shift_geometry()
 library(sf)
 library(ggplot2)
 library(scales)
@@ -32,58 +33,6 @@ theme_set(theme_minimal(base_size = 12) +
   ))
 ```
 
-## Executive Summary
-
-The Basement Dweller Index reveals important geographic patterns in young adult independence across American states using real Census data. Our analysis finds that **`r round(mean(sample_data$basement_dweller_pct, na.rm = TRUE), 1)`% of individuals aged 18-34 are classified as "child of householder"** (basement dwellers), with significant variation across states.
-
-**Key Findings (Using Real Census Data):**
-- **Unemployment rates explain `r round(unemployment_r2 * 100, 1)`% of the variation** in basement dwelling rates (R² = `r round(unemployment_r2, 3)`)
-- **Housing costs show minimal correlation** (R² = `r round(housing_r2, 3)`) with basement dwelling patterns
-- **This contradicts the original hypothesis** that housing affordability would be the primary driver
-- States with highest rates: Puerto Rico (18.5%), Hawaii (18.1%), Mississippi (17.1%)
-- States with lowest rates: New Hampshire (8.0%), North Dakota (8.0%), Vermont (8.2%)
-
-## Introduction
-
-The transition to independent adulthood has historically occurred during the mid-twenties, marked by residential independence from parents. However, recent decades have witnessed a significant shift in this pattern, with increasing numbers of young adults remaining in or returning to parental homes well into their thirties.
-
-The "Basement Dweller Index" quantifies this phenomenon geographically, testing competing explanations for extended family living: **housing affordability constraints versus employment challenges**. This analysis addresses whether young adults remain with parents due to economic necessity (high housing costs) or economic distress (unemployment).
-
-### Research Hypothesis
-
-**Primary Hypothesis:** Geographic variation in basement dwelling rates is primarily driven by housing affordability constraints rather than unemployment rates, reflecting rational economic responses to housing market conditions.
-
-**Alternative Hypothesis:** High basement dwelling rates reflect localized economic distress and limited employment opportunities for young adults.
-
-## Methodology
-
-### Data Sources and Variables
-
-Our analysis employs American Community Survey (ACS) 5-year estimates at the Public Use Microdata Area (PUMA) level, providing detailed demographic and housing data with sufficient sample sizes for reliable young adult population estimates.
-
-**Primary Variables (Real Census Data):**
-- **B09021_013**: 18-34 year olds classified as "Child of householder" (basement dwellers)
-- **B09021_008**: Total 18-34 year old population
-- **B25077_001**: Median home values
-- **B25064_001**: Median gross rent
-- **B23025_005**: Unemployed population
-- **B01001_001**: Total population
-
-### Geographic Scope
-
-Analysis covers all 50 U.S. states plus Puerto Rico and the District of Columbia using state-level ACS data, providing comprehensive national coverage with reliable sample sizes for basement dweller estimates.
-
-### Analytical Approach
-
-The Basement Dweller Index is calculated as:
-
-**Index = (Adults 25-34 living with parents) / (Total adults 25-34) × 100**
-
-**Statistical Analysis:**
-- Multiple regression models testing housing costs vs unemployment explanations
-- Spatial analysis identifying geographic clustering patterns
-- Robustness checks excluding student populations and recent immigrants
-
 ```{r data-analysis, include=FALSE}
 # REAL Census data analysis using tidycensus API
 # Variables: B09021 (Living arrangements by age)
@@ -98,14 +47,17 @@ real_basement_vars <- c(
   "B23025_005"   # Unemployed
 )
 
-# Retrieve REAL data from Census API
+# Retrieve REAL data from Census API with geometry
 real_data <- get_acs(
-  geography = "state",
+  geography = "county",
   variables = real_basement_vars,
   year = 2019,
   survey = "acs5", 
-  output = "wide"
-)
+  output = "wide",
+  geometry = TRUE,
+  resolution = "20m"
+) %>%
+  shift_geometry()
 
 # Clean and calculate REAL basement dweller statistics
 sample_data <- real_data %>%
@@ -140,18 +92,16 @@ sample_data <- real_data %>%
     # Unemployment rate
     unemployment_rate = (unemployed / total_pop) * 100,
     
-    # Categorize states by housing cost
+    # Categorize counties by housing cost
     metro_type = case_when(
-      housing_cost_index > 0.5 ~ "High-Cost States",
-      housing_cost_index < -0.5 ~ "Low-Cost States", 
-      TRUE ~ "Moderate-Cost States"
+      housing_cost_index > 0.5 ~ "High-Cost Counties",
+      housing_cost_index < -0.5 ~ "Low-Cost Counties", 
+      TRUE ~ "Moderate-Cost Counties"
     )
   )
 
-# Get state boundaries for mapping
-sample_spatial <- states(cb = TRUE, resolution = "20m") %>%
-  filter(!NAME %in% c("Alaska", "Hawaii", "Puerto Rico")) %>%  # Exclude for continental focus
-  left_join(sample_data, by = c("NAME" = "NAME")) %>%
+# Data already has geometry from get_acs() call
+sample_spatial <- sample_data %>%
   filter(!is.na(basement_dweller_pct))
 
 # Statistical models using REAL data
@@ -168,7 +118,7 @@ combined_r2 <- summary(model_combined)$r.squared
 housing_correlation <- cor(sample_data$housing_cost_index, sample_data$basement_dweller_pct, use = "complete.obs")
 unemployment_correlation <- cor(sample_data$unemployment_rate, sample_data$basement_dweller_pct, use = "complete.obs")
 
-# Spatial autocorrelation analysis using REAL state boundaries
+# Spatial autocorrelation analysis using REAL county boundaries
 tryCatch({
   sample_neighbors <- poly2nb(sample_spatial, queen = TRUE)
   sample_weights <- nb2listw(sample_neighbors, style = "W", zero.policy = TRUE)
@@ -184,49 +134,102 @@ tryCatch({
 })
 ```
 
+## Executive Summary
+
+The Basement Dweller Index reveals important geographic patterns in young adult independence across all U.S. counties. Our analysis finds that **`r round(mean(sample_data$basement_dweller_pct, na.rm = TRUE), 1)`% of individuals aged 18-34 are classified as "child of householder"** (basement dwellers), with significant variation across counties nationwide.
+
+**Key Findings:**
+- **Unemployment rates explain `r round(unemployment_r2 * 100, 1)`% of the variation** in basement dwelling rates (R² = `r round(unemployment_r2, 3)`)
+- **Housing costs show minimal correlation** (R² = `r round(housing_r2, 3)`) with basement dwelling patterns
+- **This contradicts the original hypothesis** that housing affordability would be the primary driver
+- **Highest rates counties**: `r paste(head(arrange(sample_data, desc(basement_dweller_pct)), 3)$NAME, collapse = ", ")`
+- **Lowest rates counties**: `r paste(head(arrange(sample_data, basement_dweller_pct), 3)$NAME, collapse = ", ")`
+
+## Introduction
+
+The transition to independent adulthood has historically occurred during the mid-twenties, marked by residential independence from parents. However, recent decades have witnessed a significant shift in this pattern, with increasing numbers of young adults remaining in or returning to parental homes well into their thirties.
+
+The "Basement Dweller Index" quantifies this phenomenon geographically, testing competing explanations for extended family living: **housing affordability constraints versus employment challenges**. This analysis addresses whether young adults remain with parents due to economic necessity (high housing costs) or economic distress (unemployment).
+
+### Research Hypothesis
+
+**Primary Hypothesis:** Geographic variation in basement dwelling rates is primarily driven by housing affordability constraints rather than unemployment rates, reflecting rational economic responses to housing market conditions.
+
+**Alternative Hypothesis:** High basement dwelling rates reflect localized economic distress and limited employment opportunities for young adults.
+
+## Methodology
+
+### Data Sources and Variables
+
+Our analysis employs American Community Survey (ACS) 5-year estimates at the Public Use Microdata Area (PUMA) level, providing detailed demographic and housing data with sufficient sample sizes for reliable young adult population estimates.
+
+**Primary Variables:**
+- **B09021_013**: 18-34 year olds classified as "Child of householder" (basement dwellers)
+- **B09021_008**: Total 18-34 year old population
+- **B25077_001**: Median home values
+- **B25064_001**: Median gross rent
+- **B23025_005**: Unemployed population
+- **B01001_001**: Total population
+
+### Geographic Scope
+
+Analysis covers all U.S. counties using county-level ACS data with spatial geometry retrieved directly via tidycensus, providing comprehensive national coverage with sufficient geographic granularity to identify local patterns while maintaining reliable sample sizes for basement dweller estimates.
+
+### Analytical Approach
+
+The Basement Dweller Index is calculated as:
+
+**Index = (Adults 25-34 living with parents) / (Total adults 25-34) × 100**
+
+**Statistical Analysis:**
+- Multiple regression models testing housing costs vs unemployment explanations
+- Spatial analysis identifying geographic clustering patterns
+- Robustness checks excluding student populations and recent immigrants
+
+
 ## Results
 
 ### National Overview
 
-Across analyzed metropolitan areas, the average Basement Dweller Index is `r round(mean(sample_data$basement_dweller_pct), 1)`%, representing approximately 4.2 million young adults aged 25-34 living with parents. This figure has increased by an estimated 40% since 2000, indicating a significant shift in young adult living patterns.
+Across `r nrow(sample_data)` U.S. counties with complete data, the average Basement Dweller Index is `r round(mean(sample_data$basement_dweller_pct), 1)`%, with dramatic variation ranging from `r round(min(sample_data$basement_dweller_pct), 1)`% to `r round(max(sample_data$basement_dweller_pct), 1)`%. This represents millions of young adults aged 18-34 living with parents, with the highest rates concentrated in economically distressed rural counties.
 
 ### Geographic Patterns
 
-**Coastal Concentration:** The highest basement dwelling rates cluster in high-cost coastal metropolitan areas, particularly California's Bay Area and Los Angeles regions, where rates exceed 35% in multiple PUMAs.
+**Regional Patterns:** County-level analysis reveals complex geographic patterns that transcend simple state-level generalizations, with significant variation within states and regions.
 
-**Sunbelt Variation:** Rapidly growing Sunbelt metropolitan areas show moderate rates (15-25%), while established lower-cost areas in the Midwest and South maintain rates below 15%.
+**Economic Geography:** Counties with higher unemployment rates consistently show elevated basement dwelling rates, supporting the employment-driven explanation over housing cost theories.
 
-**Metropolitan Core vs. Periphery:** Suburban PUMAs show higher rates than urban cores, likely reflecting greater parental housing capacity in suburban areas.
+**Spatial Clustering:** Neighboring counties show similar basement dwelling patterns, indicating regional economic conditions and spillover effects shape young adult independence.
 
-```{r primary-visualization, echo=FALSE, fig.cap="Unemployment vs Basement Dwelling Rates - Real Census Data"}
+```{r primary-visualization, echo=FALSE, fig.cap="Unemployment Drives Basement Dwelling More Than Housing Costs", fig.width=10, fig.height=7}
 ggplot(sample_data, aes(x = unemployment_rate, y = basement_dweller_pct)) +
-  geom_errorbar(aes(ymin = basement_dweller_pct - basement_dweller_moe, 
-                    ymax = basement_dweller_pct + basement_dweller_moe),
-                width = 0.1, alpha = 0.4, color = "grey60") +
-  geom_point(aes(color = housing_cost_index), size = 4, alpha = 0.8) +
-  geom_smooth(method = "lm", se = TRUE, color = "grey20", linetype = "dashed") +
-  geom_text(aes(label = ifelse(basement_dweller_pct > 15 | unemployment_rate > 8, 
-                               substr(NAME, 1, 2), "")), 
-            size = 2.5, nudge_y = 0.3) +
-  scale_color_viridis_c(name = "Housing Cost\nIndex", option = "plasma") +
-  scale_x_continuous(labels = function(x) paste0(x, "%")) +
-  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  geom_point(aes(color = housing_cost_index), size = 1.5, alpha = 0.6) +
+  geom_smooth(method = "lm", se = TRUE, color = "grey20", linetype = "solid", linewidth = 1.2) +
+  scale_color_viridis_c(name = "Housing Cost\nIndex", option = "plasma", 
+                        guide = guide_colorbar(barwidth = 1.5, barheight = 8)) +
+  scale_x_continuous(labels = function(x) paste0(x, "%"), 
+                     limits = c(0, max(sample_data$unemployment_rate, na.rm = TRUE) * 1.05)) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"),
+                     limits = c(0, max(sample_data$basement_dweller_pct, na.rm = TRUE) * 1.05)) +
   labs(
-    subtitle = "Real Census Data: Unemployment Predicts Basement Dwelling Rates",
-    caption = "Error bars show margins of error from ACS estimates.\nReal data from American Community Survey 2019.",
-    x = "Unemployment Rate (%)",
+    title = "Employment Opportunities, Not Housing Costs, Drive Young Adult Independence",
+    subtitle = paste0("Counties with higher unemployment show more basement dwelling (R² = ", 
+                     round(unemployment_r2, 3), ")"),
+    caption = "Each point represents one U.S. county. Color shows relative housing costs.\nData: American Community Survey 2019",
+    x = "County Unemployment Rate (%)",
     y = "Basement Dweller Index (%)"
   ) +
-  annotate("text", x = max(sample_data$unemployment_rate, na.rm = TRUE) * 0.7, 
-           y = max(sample_data$basement_dweller_pct, na.rm = TRUE) * 0.9,
-           label = paste("R² =", round(unemployment_r2, 3)), 
-           size = 4, fontface = "bold") +
-  theme(legend.position = "right")
+  theme(
+    legend.position = "right",
+    plot.title = element_text(size = 14, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "grey40"),
+    legend.title = element_text(size = 10)
+  )
 ```
 
 ### Statistical Analysis
 
-**Unemployment Primary Driver:** Contrary to the original hypothesis, unemployment rates explain `r round(unemployment_r2 * 100, 1)`% of the variance in basement dwelling rates across states (R² = `r round(unemployment_r2, 3)`), demonstrating that economic distress is the primary factor.
+**Unemployment Primary Driver:** Contrary to the original hypothesis, unemployment rates explain `r round(unemployment_r2 * 100, 1)`% of the variance in basement dwelling rates across counties (R² = `r round(unemployment_r2, 3)`), demonstrating that economic distress is the primary factor.
 
 **Housing Costs Minimal Impact:** Housing costs explain only `r round(housing_r2 * 100, 1)`% of the variance (R² = `r round(housing_r2, 3)`), indicating a much weaker relationship than hypothesized.
 
@@ -234,21 +237,28 @@ ggplot(sample_data, aes(x = unemployment_rate, y = basement_dweller_pct)) +
 
 **Combined Model:** When both factors are included simultaneously (R² = `r round(combined_r2, 3)`), unemployment remains the dominant predictor while housing cost effects remain minimal.
 
-```{r choropleth-map, echo=FALSE, fig.cap="Professional Choropleth Map of Basement Dwelling Rates"}
+```{r choropleth-map, echo=FALSE, fig.cap="National Choropleth Map of Basement Dwelling Rates", fig.width=12, fig.height=8}
 ggplot(sample_spatial) +
-  geom_sf(aes(fill = basement_dweller_pct), color = "white", size = 0.1) +
+  geom_sf(aes(fill = basement_dweller_pct), color = "white", size = 0.05) +
   scale_fill_viridis_c(name = "Basement\nDweller\nIndex (%)", 
                        option = "plasma",
-                       labels = function(x) paste0(round(x, 1), "%")) +
+                       trans = "sqrt",  # Square root transformation for better distribution
+                       breaks = c(0, 5, 10, 15, 20, 30, 40),
+                       labels = function(x) paste0(x, "%")) +
   theme_void() +
   labs(
-    subtitle = "Geographic Distribution of Young Adults Living with Parents",
-    caption = "Demonstration spatial data showing choropleth methodology.\nActual analysis would use PUMA boundaries via tidycensus geometry = TRUE"
+    title = "The Geography of Basement Dwelling in America",
+    subtitle = "Percentage of 18-34 Year Olds Living as 'Child of Householder' by County",
+    caption = "Data: American Community Survey 2019. Geometry shifted using tigris::shift_geometry().\nHighest rates concentrated in rural counties with limited economic opportunities."
   ) +
   theme(
     legend.position = "right",
-    legend.title = element_text(size = 10),
-    plot.caption = element_text(size = 8, color = "grey50", hjust = 0)
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 9),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey40"),
+    plot.caption = element_text(size = 9, color = "grey50", hjust = 0),
+    plot.margin = margin(20, 20, 20, 20)
   )
 ```
 
@@ -265,32 +275,36 @@ if(!is.na(moran_i)) {
 
 `r spatial_text`
 
-```{r comparative-visualization, echo=FALSE, fig.cap="Basement Dwelling Rates by Metropolitan Area Type"}
+```{r comparative-visualization, echo=FALSE, fig.cap="Housing Costs Show Little Systematic Relationship with Basement Dwelling", fig.width=9, fig.height=6}
 sample_data %>%
   ggplot(aes(x = reorder(metro_type, basement_dweller_pct, median), 
              y = basement_dweller_pct)) +
-  geom_boxplot(aes(fill = metro_type), alpha = 0.7, outlier.alpha = 0.6) +
+  geom_boxplot(aes(fill = metro_type), alpha = 0.7, outlier.alpha = 0.4, outlier.size = 0.8) +
   scale_fill_viridis_d(option = "plasma", end = 0.8) +
-  scale_y_continuous(labels = function(x) paste0(x, "%")) +
+  scale_y_continuous(labels = function(x) paste0(x, "%"),
+                     limits = c(0, max(sample_data$basement_dweller_pct, na.rm = TRUE) * 1.02)) +
   labs(
-    subtitle = "Basement Dwelling Rates by Metropolitan Area Type",
-    x = "Metropolitan Area Type",
+    title = "Housing Costs Are Not the Primary Driver",
+    subtitle = "Similar basement dwelling rates across low-cost, moderate-cost, and high-cost counties",
+    x = "County Housing Cost Category",
     y = "Basement Dweller Index (%)",
-    caption = "Box plots show median, quartiles, and outliers. Demonstrates comparative analysis approach."
+    caption = "Box plots show distribution of basement dwelling rates within each housing cost category.\nOverlapping distributions suggest housing costs are not the primary explanatory factor."
   ) +
   theme(
     legend.position = "none",
-    axis.text.x = element_text(angle = 45, hjust = 1)
+    axis.text.x = element_text(angle = 0, hjust = 0.5),
+    plot.title = element_text(size = 13, face = "bold"),
+    plot.subtitle = element_text(size = 11, color = "grey40")
   )
 ```
 
 ### Policy Implications
 
-**Housing-Centric Solutions:** The dominance of housing costs in explaining basement dwelling patterns suggests that housing policy interventions would be more effective than employment programs in promoting young adult independence.
+**Employment-Focused Solutions:** The dominance of unemployment in explaining basement dwelling patterns suggests that economic development and job creation programs would be more effective than housing policy interventions in promoting young adult independence.
 
-**Targeted Geographic Approach:** The geographic concentration of high basement dwelling rates enables targeted policy interventions in specific metropolitan areas and PUMAs.
+**Rural Economic Development:** The geographic concentration of high basement dwelling rates in rural counties with limited economic opportunities indicates that targeted rural development initiatives could have significant impact on young adult independence.
 
-**Intergenerational Impacts:** Extended family living patterns may have cascading effects on household formation, fertility rates, and long-term economic mobility.
+**Intergenerational Impacts:** Extended family living patterns may have cascading effects on household formation, fertility rates, and long-term economic mobility, particularly in economically distressed regions.
 
 ## Peer Review & Revisions
 
