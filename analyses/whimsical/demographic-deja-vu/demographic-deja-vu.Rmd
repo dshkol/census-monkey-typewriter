@@ -391,7 +391,7 @@ Our analysis reveals several fascinating insights about demographic change in Am
 
 **2. National-Scale Cross-Regional Similarity**: At national scale, **`r sum(!state_analysis$same_state)` of `r nrow(state_analysis)` top temporal twins** span different regions, demonstrating that demographic forces operate at a continental scale. Similar economic and social pressures create parallel demographic trajectories across vast distances, from coast to coast.
 
-**3. Regional Convergence Patterns**: The most common cross-regional pairings are **`r geographic_summary$cross_regional[1]`** (`r geographic_summary$n[1]` pairs) and **`r if(nrow(geographic_summary) > 1) geographic_summary$cross_regional[2] else "various"}`** (`r if(nrow(geographic_summary) > 1) geographic_summary$n[2] else 0` pairs), suggesting specific regional demographic transitions that mirror each other.
+**3. Regional Convergence Patterns**: The most common cross-regional pairings are **`r geographic_summary$cross_regional[1]`** (`r geographic_summary$n[1]` pairs) and **`r if(nrow(geographic_summary) > 1) geographic_summary$cross_regional[2] else "various"`** (`r if(nrow(geographic_summary) > 1) geographic_summary$n[2] else 0` pairs), suggesting specific regional demographic transitions that mirror each other.
 
 **4. Geographic Diversity**: Temporal twins span **`r length(unique(c(state_analysis$state1, state_analysis$state2)))` different states**, with **`r states_summary$state[1]`** and **`r if(nrow(states_summary) > 1) states_summary$state[2] else states_summary$state[1]`** appearing most frequently in twin relationships, indicating widespread demographic convergence patterns.
 
