@@ -1,4 +1,5 @@
-# The Goldilocks Zone: Places That Are Demographically 'Just Right'
+# The Goldilocks Zone: Finding America's Most Average Counties
+# A Philosophical Investigation of American Demographic Identity
 # Working R script for development and testing
 
 # Load required libraries
@@ -11,7 +12,13 @@ library(viridis)
 library(broom)
 library(corrplot)
 library(MASS)
-# library(factoextra) # Not needed for core analysis
+library(cluster)
+library(factoextra)
+library(ggforce)
+library(patchwork)
+library(ggradar)
+library(plotly)
+library(DT)
 
 # Set Census API key and options
 options(tigris_use_cache = TRUE)
@@ -385,11 +392,398 @@ quintile_comparison <- county_full_analysis %>%
 cat("Outcomes by averageness quintile:\n")
 print(quintile_comparison)
 
-# Save processed data for R Markdown
-save(county_data, county_full_analysis, goldilocks_counties, 
-     quintile_comparison, national_means, cor_results,
-     file = "/Users/dmitryshkolnik/Projects/census-monkey-typewriter/analyses/whimsical/goldilocks-zone/data/goldilocks_analysis.RData")
+# ===== ENHANCED ANALYSIS: MULTIPLE AVERAGENESS METRICS =====
 
-cat("Analysis complete! Data saved for R Markdown report.\n")
-cat("Most average county:", goldilocks_counties$NAME[1], "\n")
-cat("Its Mahalanobis distance:", round(goldilocks_counties$mahal_distance[1], 2), "\n")
+cat("\n=== CALCULATING ALTERNATIVE AVERAGENESS METRICS ===\n")
+
+# 1. Centroid Distance (Euclidean)
+centroid_distance <- function(data, means) {
+  data_matrix <- as.matrix(data)
+  means_vector <- as.numeric(means)
+  sqrt(rowSums((data_matrix - rep(means_vector, each = nrow(data_matrix)))^2))
+}
+
+county_analysis$euclidean_distance <- centroid_distance(
+  county_analysis %>% select(-GEOID, -mahal_distance),
+  national_means
+)
+
+# 2. Median Absolute Deviation
+county_analysis$mad_score <- apply(
+  county_analysis %>% select(-GEOID, -mahal_distance, -euclidean_distance), 
+  1, 
+  function(row) {
+    means_vec <- as.numeric(national_means)
+    median(abs(row - means_vec), na.rm = TRUE)
+  }
+)
+
+# 3. Quartile Spread Score
+county_analysis$quartile_score <- apply(
+  county_analysis %>% select(-GEOID, -mahal_distance, -euclidean_distance, -mad_score), 
+  1, 
+  function(row) {
+    means_vec <- as.numeric(national_means)
+    differences <- abs(row - means_vec)
+    quantile(differences, 0.75, na.rm = TRUE) - quantile(differences, 0.25, na.rm = TRUE)
+  }
+)
+
+# 4. Maximum Deviation Score
+county_analysis$max_deviation <- apply(
+  county_analysis %>% select(-GEOID, -mahal_distance, -euclidean_distance, -mad_score, -quartile_score), 
+  1, 
+  function(row) {
+    means_vec <- as.numeric(national_means)
+    max(abs(row - means_vec), na.rm = TRUE)
+  }
+)
+
+# Compare different metrics
+cat("Correlation between different averageness metrics:\n")
+metrics_cor <- county_analysis %>%
+  select(mahal_distance, euclidean_distance, mad_score, quartile_score, max_deviation) %>%
+  cor(use = "complete.obs")
+print(round(metrics_cor, 3))
+
+# Find top counties by each metric
+metrics_rankings <- data.frame(
+  mahalanobis = county_analysis %>% arrange(mahal_distance) %>% slice_head(n = 10) %>% pull(GEOID),
+  euclidean = county_analysis %>% arrange(euclidean_distance) %>% slice_head(n = 10) %>% pull(GEOID),
+  mad = county_analysis %>% arrange(mad_score) %>% slice_head(n = 10) %>% pull(GEOID),
+  quartile = county_analysis %>% arrange(quartile_score) %>% slice_head(n = 10) %>% pull(GEOID),
+  max_dev = county_analysis %>% arrange(max_deviation) %>% slice_head(n = 10) %>% pull(GEOID)
+)
+
+cat("\nConsistency of top 10 across metrics:\n")
+cat("Counties appearing in multiple top-10 lists:\n")
+all_top_counties <- unlist(metrics_rankings)
+consistent_counties <- table(all_top_counties)
+print(sort(consistent_counties[consistent_counties > 1], decreasing = TRUE))
+
+# ===== TEMPORAL EVOLUTION ANALYSIS =====
+
+cat("\n=== TEMPORAL EVOLUTION OF AVERAGENESS ===\n")
+
+# Get historical data for comparison (2010)
+cat("Retrieving 2010 data for temporal comparison...\n")
+
+# Load 2010 variables
+vars_2010 <- load_variables(2010, "acs5", cache = TRUE)
+
+# Get subset of variables available in both years
+core_temporal_vars <- c(
+  "B01001_001", # Total population
+  "B01001_002", # Male
+  "B03002_003", # White alone, not Hispanic
+  "B03002_004", # Black alone, not Hispanic
+  "B03002_012", # Hispanic or Latino
+  "B15003_017", # High school graduate
+  "B15003_022", # Bachelor's degree
+  "B19013_001", # Median household income
+  "B23025_005", # Unemployed
+  "B25003_002", # Owner occupied
+  "B17001_002"  # Below poverty level
+)
+
+# Test with small sample first
+test_2010 <- get_acs(
+  geography = "county",
+  variables = core_temporal_vars,
+  state = "MI",
+  year = 2010,
+  survey = "acs5",
+  output = "wide",
+  geometry = FALSE,
+  cache_table = TRUE
+)
+
+cat("2010 test successful! Sample size:", nrow(test_2010), "\n")
+
+# Get full 2010 data
+county_2010 <- get_acs(
+  geography = "county",
+  variables = core_temporal_vars,
+  year = 2010,
+  survey = "acs5",
+  output = "wide",
+  geometry = FALSE,
+  cache_table = TRUE
+)
+
+# Calculate comparable metrics for 2010
+county_2010_clean <- county_2010 %>%
+  mutate(
+    pct_male = B01001_002E / B01001_001E * 100,
+    pct_white = B03002_003E / B01001_001E * 100,
+    pct_black = B03002_004E / B01001_001E * 100,
+    pct_hispanic = B03002_012E / B01001_001E * 100,
+    pct_hs_grad = B15003_017E / B01001_001E * 100,
+    pct_bachelors = B15003_022E / B01001_001E * 100,
+    median_income = B19013_001E,
+    unemployment_rate = B23025_005E / B01001_001E * 100,
+    pct_owner_occupied = B25003_002E / B01001_001E * 100,
+    poverty_rate = B17001_002E / B01001_001E * 100
+  ) %>%
+  select(GEOID, starts_with("pct_"), median_income, unemployment_rate, poverty_rate) %>%
+  filter(!is.na(GEOID)) %>%
+  mutate(across(where(is.numeric), ~ifelse(is.infinite(.) | is.na(.), median(., na.rm = TRUE), .)))
+
+# Calculate 2010 national means
+national_means_2010 <- county_2010_clean %>%
+  select(-GEOID) %>%
+  summarise(across(everything(), \(x) mean(x, na.rm = TRUE)))
+
+# Calculate 2010 Mahalanobis distances
+analysis_matrix_2010 <- county_2010_clean %>%
+  select(-GEOID) %>%
+  as.matrix()
+
+cov_matrix_2010 <- cov(analysis_matrix_2010)
+cov_inv_2010 <- tryCatch({
+  solve(cov_matrix_2010)
+}, error = function(e) {
+  MASS::ginv(cov_matrix_2010)
+})
+
+county_2010_clean$mahal_distance_2010 <- mahalanobis(
+  analysis_matrix_2010,
+  center = as.numeric(national_means_2010),
+  cov = cov_matrix_2010
+)
+
+# Find most average counties in 2010
+top_2010 <- county_2010_clean %>%
+  arrange(mahal_distance_2010) %>%
+  slice_head(n = 20) %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  )
+
+cat("\nTop 10 most average counties in 2010:\n")
+print(top_2010 %>% select(NAME, mahal_distance_2010) %>% slice_head(n = 10))
+
+# Compare 2010 vs 2022 rankings
+temporal_comparison <- county_2010_clean %>%
+  select(GEOID, mahal_distance_2010) %>%
+  inner_join(
+    county_analysis %>% select(GEOID, mahal_distance),
+    by = "GEOID"
+  ) %>%
+  mutate(
+    rank_2010 = rank(mahal_distance_2010),
+    rank_2022 = rank(mahal_distance),
+    rank_change = rank_2010 - rank_2022
+  ) %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  )
+
+cat("\nCounties with biggest improvements in averageness (2010 to 2022):\n")
+biggest_improvers <- temporal_comparison %>%
+  arrange(desc(rank_change)) %>%
+  slice_head(n = 10) %>%
+  select(NAME, rank_2010, rank_2022, rank_change)
+print(biggest_improvers)
+
+cat("\nCounties with biggest declines in averageness (2010 to 2022):\n")
+biggest_decliners <- temporal_comparison %>%
+  arrange(rank_change) %>%
+  slice_head(n = 10) %>%
+  select(NAME, rank_2010, rank_2022, rank_change)
+print(biggest_decliners)
+
+# ===== VARIABLE SENSITIVITY ANALYSIS =====
+
+cat("\n=== VARIABLE SENSITIVITY ANALYSIS ===\n")
+
+# Test how rankings change with different variable subsets
+variable_groups <- list(
+  "demographics_only" = county_analysis %>% select(GEOID, starts_with("pct_")),
+  "economics_only" = county_analysis %>% select(GEOID, median_income, unemployment_rate, poverty_rate),
+  "no_race" = county_analysis %>% select(-GEOID, -pct_white, -pct_black, -pct_asian, -pct_hispanic, -mahal_distance, -euclidean_distance, -mad_score, -quartile_score, -max_deviation),
+  "no_income" = county_analysis %>% select(-GEOID, -median_income, -mahal_distance, -euclidean_distance, -mad_score, -quartile_score, -max_deviation),
+  "core_only" = county_analysis %>% select(GEOID, pct_white, pct_black, pct_hispanic, median_income, pct_bachelors, unemployment_rate, poverty_rate)
+)
+
+sensitivity_results <- list()
+
+for (group_name in names(variable_groups)) {
+  cat("Testing sensitivity for:", group_name, "\n")
+  
+  group_data <- variable_groups[[group_name]]
+  if ("GEOID" %in% names(group_data)) {
+    analysis_vars <- group_data %>% select(-GEOID)
+  } else {
+    analysis_vars <- group_data
+  }
+  
+  # Calculate means and covariance for this subset
+  group_means <- analysis_vars %>% summarise(across(everything(), \(x) mean(x, na.rm = TRUE)))
+  group_matrix <- as.matrix(analysis_vars)
+  group_cov <- cov(group_matrix)
+  
+  # Calculate Mahalanobis distance
+  group_distances <- mahalanobis(
+    group_matrix,
+    center = as.numeric(group_means),
+    cov = group_cov
+  )
+  
+  # Get top 10 counties for this subset
+  top_counties_group <- data.frame(
+    GEOID = county_analysis$GEOID,
+    distance = group_distances
+  ) %>%
+    arrange(distance) %>%
+    slice_head(n = 10) %>%
+    pull(GEOID)
+  
+  sensitivity_results[[group_name]] <- top_counties_group
+}
+
+# Check consistency across variable subsets
+cat("\nConsistency of top 10 counties across variable subsets:\n")
+all_sensitivity_counties <- unlist(sensitivity_results)
+sensitivity_consistency <- table(all_sensitivity_counties)
+print(sort(sensitivity_consistency[sensitivity_consistency > 1], decreasing = TRUE))
+
+# ===== EXTREME COUNTIES ANALYSIS =====
+
+cat("\n=== ANALYZING LEAST AVERAGE COUNTIES ===\n")
+
+# Find most extreme counties
+extreme_counties <- county_analysis %>%
+  arrange(desc(mahal_distance)) %>%
+  slice_head(n = 20) %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  )
+
+cat("Top 10 least average (most extreme) counties:\n")
+print(extreme_counties %>% select(NAME, mahal_distance) %>% slice_head(n = 10))
+
+# Analyze what makes them extreme
+extreme_analysis <- extreme_counties %>%
+  slice_head(n = 10) %>%
+  select(-NAME, -euclidean_distance, -mad_score, -quartile_score, -max_deviation) %>%
+  pivot_longer(-c(GEOID, mahal_distance), names_to = "variable", values_to = "value") %>%
+  left_join(
+    national_means %>%
+      pivot_longer(everything(), names_to = "variable", values_to = "national_mean"),
+    by = "variable"
+  ) %>%
+  mutate(
+    deviation = abs(value - national_mean),
+    standardized_deviation = deviation / national_mean
+  ) %>%
+  group_by(GEOID) %>%
+  arrange(desc(standardized_deviation)) %>%
+  slice_head(n = 3) %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  )
+
+cat("\nMost extreme deviations by county:\n")
+print(extreme_analysis %>% 
+  select(NAME, variable, value, national_mean, standardized_deviation) %>%
+  arrange(desc(standardized_deviation)))
+
+# ===== ENHANCED GOLDILOCKS PROFILES =====
+
+cat("\n=== CREATING DETAILED PROFILES OF TOP 5 COUNTIES ===\n")
+
+# Get top 5 most average counties with full details
+top_5_profiles <- county_full_analysis %>%
+  arrange(mahal_distance) %>%
+  slice_head(n = 5) %>%
+  select(GEOID, NAME, mahal_distance, everything())
+
+# Create detailed profiles for each
+for (i in 1:5) {
+  county_profile <- top_5_profiles %>% slice(i)
+  cat("\n--- PROFILE #", i, ": ", county_profile$NAME, " ---\n")
+  cat("Averageness Score:", round(county_profile$mahal_distance, 3), "\n")
+  
+  # Find this county's closest matches to national means
+  profile_data <- county_profile %>%
+    select(starts_with("pct_"), median_income, unemployment_rate, poverty_rate) %>%
+    pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+    left_join(
+      national_means %>%
+        pivot_longer(everything(), names_to = "variable", values_to = "national_mean"),
+      by = "variable"
+    ) %>%
+    mutate(
+      difference = value - national_mean,
+      abs_difference = abs(difference),
+      variable_label = case_when(
+        variable == "pct_white" ~ "% White",
+        variable == "pct_black" ~ "% Black",
+        variable == "pct_hispanic" ~ "% Hispanic",
+        variable == "median_income" ~ "Median Income",
+        variable == "unemployment_rate" ~ "Unemployment Rate",
+        variable == "poverty_rate" ~ "Poverty Rate",
+        variable == "pct_bachelors" ~ "% Bachelor's Degree",
+        variable == "pct_owner_occupied" ~ "% Homeownership",
+        TRUE ~ variable
+      )
+    ) %>%
+    arrange(abs_difference) %>%
+    slice_head(n = 5)
+  
+  cat("Top 5 closest matches to national average:\n")
+  for (j in 1:nrow(profile_data)) {
+    row <- profile_data[j, ]
+    cat(sprintf("  %s: %.1f (vs %.1f national, diff: %+.1f)\n", 
+                row$variable_label, row$value, row$national_mean, row$difference))
+  }
+}
+
+# ===== SAVE ENHANCED DATA =====
+
+cat("\n=== SAVING ENHANCED ANALYSIS DATA ===\n")
+
+# Create comprehensive data package
+save(
+  # Original data
+  county_data, county_full_analysis, goldilocks_counties, 
+  quintile_comparison, national_means, cor_results,
+  
+  # Enhanced metrics
+  county_analysis, metrics_cor, metrics_rankings,
+  
+  # Temporal analysis
+  county_2010_clean, national_means_2010, top_2010, temporal_comparison,
+  biggest_improvers, biggest_decliners,
+  
+  # Sensitivity analysis
+  sensitivity_results, sensitivity_consistency,
+  
+  # Extreme counties
+  extreme_counties, extreme_analysis,
+  
+  # Detailed profiles
+  top_5_profiles,
+  
+  file = "/Users/dmitryshkolnik/Projects/census-monkey-typewriter/analyses/whimsical/goldilocks-zone/data/goldilocks_analysis_enhanced.RData"
+)
+
+cat("\n=== ENHANCED ANALYSIS COMPLETE ===\n")
+cat("Most average county (Mahalanobis):", goldilocks_counties$NAME[1], "\n")
+cat("Most average county (2010):", top_2010$NAME[1], "\n")
+cat("Most extreme county:", extreme_counties$NAME[1], "\n")
+cat("Correlation between Mahalanobis and Euclidean:", round(metrics_cor[1,2], 3), "\n")
+cat("Counties consistent across all metrics:", names(sensitivity_consistency)[sensitivity_consistency == max(sensitivity_consistency)], "\n")

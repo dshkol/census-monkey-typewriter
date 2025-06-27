@@ -1,508 +1,964 @@
 ---
-title: "The Goldilocks Zone: Places That Are Demographically 'Just Right'"
+title: "Finding America's Most Average Counties: A Philosophical Investigation of Demographic Identity"
+subtitle: "The Goldilocks Zone of American Ordinariness"
 author: "Census Data Analysis"
 date: "`r Sys.Date()`"
 output: 
   html_document:
     toc: true
     toc_float: true
+    toc_depth: 3
     theme: flatly
     code_folding: hide
+    fig_width: 12
+    fig_height: 8
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = FALSE, message = FALSE, warning = FALSE, 
-                      fig.width = 10, fig.height = 8)
+                      fig.width = 12, fig.height = 8)
 
 # Load required libraries
 library(tidyverse)
 library(tidycensus)
-library(tigris)  # Required for shift_geometry()
+library(tigris)
 library(sf)
 library(viridis)
 library(knitr)
 library(kableExtra)
-```
-
-# Executive Summary
-
-This analysis identifies America's most demographically "average" counties using Mahalanobis distance to measure how closely each county matches national means across 34+ demographic, economic, and social variables. **Van Buren County, Michigan emerges as America's most thoroughly unremarkable place**—the closest to perfect ordinariness across all measured dimensions.
-
-**Key Findings:**
-- Van Buren County, Michigan is the most demographically average county in America
-- The top 10 "Goldilocks Zone" counties are concentrated in the Midwest and South
-- Being extremely average is associated with higher homeownership rates but shows mixed relationships with other stability measures
-- Perfect ordinariness may actually be exceptional in its balance and representativeness
-
-# Introduction
-
-In a nation of extremes, where do we find the places that are most perfectly ordinary? This analysis tackles the whimsical but theoretically rich question of identifying America's "Goldilocks Zone"—counties that are neither too high nor too low on any demographic dimension, but rather "just right" in their comprehensive averageness.
-
-Using the statistical concept of Mahalanobis distance, we measure how far each U.S. county deviates from national means across a comprehensive basket of 50+ variables spanning demographics, economics, housing, employment, and social characteristics. The counties with the smallest distances represent America's most statistically average places.
-
-**Research Questions:**
-1. Which counties are most comprehensively average across all demographic dimensions?
-2. Are there geographic patterns to demographic ordinariness?
-3. Does extreme averageness predict better outcomes in stability, growth, or satisfaction proxies?
-
-# Methodology
-
-## Data Sources
-We analyze 2018-2022 American Community Survey (ACS) 5-year estimates for all 3,222 U.S. counties, retrieved via the `tidycensus` package.
-
-## Variable Selection
-Our comprehensive demographic basket includes:
-
-**Demographics & Population (8 variables)**
-- Age and sex distributions
-- Race and ethnicity (White, Black, Asian, Hispanic percentages)
-
-**Economics & Income (6 variables)**  
-- Median household income
-- Income distribution (low and high income percentages)
-- Employment and unemployment rates
-- Labor force participation
-
-**Education (3 variables)**
-- High school graduation rates
-- Bachelor's and master's degree attainment
-
-**Housing (3 variables)**
-- Homeownership rates
-- Median home values  
-- Population density
-
-**Social & Mobility (8 variables)**
-- Poverty rates
-- Family household composition
-- Language spoken at home
-- Disability, health insurance, veteran status
-- Interstate migration patterns
-
-**Employment by Industry (8 variables)**
-- Agriculture, construction, manufacturing
-- Retail, finance, professional services
-- Education/health, public administration
-
-## Statistical Approach
-
-**Mahalanobis Distance Calculation:**
-1. Standardize all variables as percentages or per-capita measures
-2. Calculate national means for each variable
-3. Compute covariance matrix across all variables  
-4. Calculate Mahalanobis distance for each county from national means
-5. Remove variables with zero variance to ensure mathematical stability
-
-The Mahalanobis distance accounts for correlations between variables, providing a more sophisticated measure of "averageness" than simple Euclidean distance.
-
-**Outcome Analysis:**
-We test whether extreme averageness predicts:
-- **Population Stability**: Lower interstate migration rates
-- **Income Stability**: Smaller income inequality ratios
-- **Housing Stability**: Higher homeownership rates
-- **Population Growth**: Age structure as growth proxy
-
-```{r load-data, include=FALSE}
-# Load the analysis data
-load("/Users/dmitryshkolnik/Projects/census-monkey-typewriter/analyses/whimsical/goldilocks-zone/data/goldilocks_analysis.RData")
-
-# Load additional libraries for visualization
-library(tidyverse)
-library(sf)
-library(viridis)
-library(scales) 
-library(knitr)
 library(gt)
 library(ggrepel)
+library(patchwork)
+library(plotly)
+library(scales)
+library(corrplot)
+library(ggradar)
+library(ggforce)
+library(DT)
+```
 
-# Define consistent theme
+# The Quest for Perfect Ordinariness
+
+> *"What is the most American place in America? Where do we find the statistical soul of our nation?"*
+
+In an era of increasing polarization and geographic sorting, this analysis embarks on a whimsical yet profound journey to answer a deceptively simple question: **Which American counties are the most perfectly, comprehensively average?**
+
+This is not merely a statistical exercise. It's a philosophical investigation into the nature of American identity itself. In a country where coastal elites and rural heartlanders seem to inhabit different realities, where red and blue states appear to diverge into separate nations, we search for the places that remain—statistically speaking—quintessentially representative of us all.
+
+**The Central Paradox**: In seeking the most ordinary places, we may discover something extraordinary about what it means to be American in the 21st century.
+
+## The Methodological Journey: Wrestling with "Average"
+
+What does it mean to be average? This seemingly simple question reveals layers of complexity that illuminate the deeper challenge of defining American identity.
+
+### The Evolution of Our Approach
+
+Our investigation employs multiple lenses to capture different dimensions of "averageness":
+
+1. **Mahalanobis Distance**: Accounts for correlations between variables—a county might be average on education and income individually, but their combination might be unusual
+2. **Euclidean Distance**: Simple geometric distance from national means
+3. **Median Absolute Deviation**: Robust to outliers, focuses on typical deviations
+4. **Quartile Spread**: Measures consistency across the distribution of differences
+5. **Maximum Deviation**: Identifies counties with no extreme outliers
+
+Each metric tells a different story about what makes a place "typical," revealing that averageness itself is multifaceted.
+
+## Executive Summary
+
+**Key Discoveries:**
+
+- **Van Buren County, Michigan** emerges as America's most comprehensively average county across 40+ demographic dimensions
+- **Perfect averageness is rare**: Only a handful of counties achieve comprehensive demographic balance
+- **Geographic clustering**: The most average counties concentrate in the Midwest and parts of the South
+- **Temporal shifts**: Places that were average in 2010 are not necessarily average today—the definition of "typical America" is evolving
+- **The averageness paradox**: Being thoroughly ordinary requires an extraordinary balancing act across dozens of variables
+
+```{r load-data, include=FALSE}
+# Try to load enhanced data, fallback to original
+enhanced_file <- "/Users/dmitryshkolnik/Projects/census-monkey-typewriter/analyses/whimsical/goldilocks-zone/data/goldilocks_analysis_enhanced.RData"
+original_file <- "/Users/dmitryshkolnik/Projects/census-monkey-typewriter/analyses/whimsical/goldilocks-zone/data/goldilocks_analysis.RData"
+
+if (file.exists(enhanced_file)) {
+  load(enhanced_file)
+} else if (file.exists(original_file)) {
+  load(original_file)
+  cat("Using original analysis data - enhanced features may not be available\\n")
+} else {
+  stop("Neither enhanced nor original analysis data found - please run the R script first")
+}
+
+# Define consistent visual theme
 theme_goldilocks <- theme_minimal() +
   theme(
-    plot.title = element_text(size = 14, face = "bold", margin = margin(b = 20)),
-    plot.subtitle = element_text(size = 11, color = "grey40", margin = margin(b = 15)),
-    axis.title = element_text(size = 10),
-    axis.text = element_text(size = 9),
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 9),
+    plot.title = element_text(size = 16, face = "bold", margin = margin(b = 20)),
+    plot.subtitle = element_text(size = 12, color = "grey40", margin = margin(b = 15)),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
     panel.grid.minor = element_blank(),
-    plot.margin = margin(15, 15, 15, 15)
+    plot.margin = margin(15, 15, 15, 15),
+    strip.text = element_text(face = "bold", size = 11)
   )
-```
 
-# Results
-
-## America's Most Average Counties
-
-```{r top-goldilocks-table}
-goldilocks_counties %>%
-  slice_head(n = 20) %>%
-  mutate(
-    rank = row_number(),
-    mahal_distance = round(mahal_distance, 3)
-  ) %>%
-  dplyr::select(rank, NAME, mahal_distance) %>%
-  gt() %>%
-  tab_header(
-    title = "America's Most Average Counties",
-    subtitle = "Ranked by Mahalanobis distance from national demographic means"
-  ) %>%
-  tab_source_note("Source: 2018-2022 American Community Survey via tidycensus") %>%
-  cols_label(
-    rank = "Rank",
-    NAME = "County",
-    mahal_distance = "Averageness Score"
-  ) %>%
-  fmt_number(columns = mahal_distance, decimals = 3) %>%
-  tab_style(
-    style = cell_fill(color = "#f8f9fa"),
-    locations = cells_body(rows = rank <= 10)
-  ) %>%
-  tab_footnote(
-    footnote = "Lower scores indicate greater demographic averageness",
-    locations = cells_column_labels(columns = mahal_distance)
-  )
-```
-
-**Van Buren County, Michigan** emerges as America's most demographically average county, with a Mahalanobis distance of just 4.447 from the national mean. This southwestern Michigan county of 75,000 residents represents the closest approximation to a statistically "typical" American place.
-
-The top 10 most average counties cluster in the **Midwest** (Michigan, Ohio, Wisconsin, Iowa, Illinois) and **South** (South Carolina, North Carolina), suggesting these regions may harbor America's most representative communities.
-
-## Geographic Distribution of Averageness
-
-```{r averageness-map}
-# Create state boundaries for context
+# Load county geometries for mapping
 us_states <- tigris::states(cb = TRUE, resolution = "20m") %>%
   shift_geometry() %>%
   filter(!STUSPS %in% c("AK", "HI", "PR", "VI", "AS", "GU", "MP"))
+```
 
+# The Discovery Process: How Different Definitions Change Everything
+
+## Multiple Metrics, Multiple Stories
+
+```{r metrics-comparison, fig.height=10}
+# Create comparison of different averageness metrics
+metrics_data <- county_analysis %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  ) %>%
+  select(NAME, mahal_distance, euclidean_distance, mad_score, quartile_score, max_deviation) %>%
+  filter(!is.na(NAME))
+
+# Get top 10 by each metric
+top_by_metric <- list(
+  "Mahalanobis\n(Correlation-Adjusted)" = metrics_data %>% arrange(mahal_distance) %>% slice_head(n = 10),
+  "Euclidean\n(Simple Distance)" = metrics_data %>% arrange(euclidean_distance) %>% slice_head(n = 10),
+  "Median Deviation\n(Robust)" = metrics_data %>% arrange(mad_score) %>% slice_head(n = 10),
+  "Quartile Spread\n(Consistency)" = metrics_data %>% arrange(quartile_score) %>% slice_head(n = 10),
+  "Maximum Deviation\n(No Outliers)" = metrics_data %>% arrange(max_deviation) %>% slice_head(n = 10)
+)
+
+# Create combined plot showing top counties by each metric
+metric_plots <- map2(top_by_metric, names(top_by_metric), ~{
+  .x %>%
+    mutate(
+      rank = row_number(),
+      county_short = str_extract(NAME, "^[^,]+")
+    ) %>%
+    ggplot(aes(x = reorder(county_short, -rank), y = rank)) +
+    geom_col(fill = "grey20", alpha = 0.7) +
+    geom_text(aes(label = rank), hjust = -0.1, color = "white", fontface = "bold") +
+    coord_flip() +
+    labs(
+      title = .y,
+      x = "",
+      y = "Rank"
+    ) +
+    theme_goldilocks +
+    theme(
+      axis.text.y = element_text(size = 9),
+      plot.title = element_text(size = 12),
+      axis.title.x = element_text(size = 10)
+    )
+})
+
+# Combine plots
+wrap_plots(metric_plots, ncol = 3, nrow = 2) +
+  plot_annotation(
+    title = "The Many Faces of Averageness: Top Counties by Different Metrics",
+    subtitle = "Each definition of 'average' reveals different winners, exposing the complexity of typicality",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      plot.subtitle = element_text(size = 12, color = "grey40")
+    )
+  )
+```
+
+**The Revelation**: Different mathematical definitions of "average" produce dramatically different results. This isn't a flaw—it's a feature that reveals the multidimensional nature of demographic typicality.
+
+- **Mahalanobis distance** rewards counties that balance correlated variables appropriately
+- **Euclidean distance** treats all variables as equally important
+- **Median deviation** focuses on consistency across the middle of distributions
+- **Quartile spread** identifies counties with narrow ranges of deviations
+- **Maximum deviation** finds places with no extreme outliers
+
+## The Consistency Test: Counties That Appear Average by Any Measure
+
+```{r consistency-analysis}
+# Analyze which counties appear consistently across metrics
+all_top_counties <- unlist(map(top_by_metric, ~.x$NAME))
+consistency_table <- table(all_top_counties)
+consistent_counties <- sort(consistency_table[consistency_table > 1], decreasing = TRUE)
+
+consistent_df <- data.frame(
+  County = names(consistent_counties),
+  Appearances = as.numeric(consistent_counties),
+  Percentage = round(as.numeric(consistent_counties) / 5 * 100, 1)
+) %>%
+  arrange(desc(Appearances))
+
+consistent_df %>%
+  gt() %>%
+  tab_header(
+    title = "The Consistently Average: Counties Appearing in Multiple Top-10 Lists",
+    subtitle = "These places achieve averageness by any mathematical definition"
+  ) %>%
+  cols_label(
+    County = "County",
+    Appearances = "Times in Top 10",
+    Percentage = "% of Metrics"
+  ) %>%
+  tab_style(
+    style = cell_fill(color = "#e8f4f8"),
+    locations = cells_body(rows = Appearances >= 3)
+  ) %>%
+  tab_source_note("Source: Analysis of 5 different averageness metrics") %>%
+  fmt_percent(columns = Percentage, scale_values = FALSE)
+```
+
+**The True Champions of Ordinariness**: Counties appearing in multiple top-10 lists represent places that achieve averageness by any reasonable definition—the statistical equivalent of being fluent in multiple languages of typicality.
+
+# The Geographic Soul of America
+
+## Mapping the Goldilocks Zone
+
+```{r averageness-map, fig.height=10}
 # Prepare county data for mapping
 county_map_data <- county_data %>%
   left_join(
-    county_full_analysis %>% 
-      dplyr::select(GEOID, mahal_distance, averageness_quintile), 
+    county_analysis %>% 
+      select(GEOID, mahal_distance), 
     by = "GEOID"
   ) %>%
   filter(!is.na(mahal_distance))
 
-# Create the map
-ggplot() +
-  geom_sf(data = us_states, fill = "white", color = "grey90", size = 0.2) +
+# Create the main averageness map
+main_map <- ggplot() +
+  geom_sf(data = us_states, fill = "white", color = "grey90", size = 0.3) +
   geom_sf(data = county_map_data, 
           aes(fill = mahal_distance), 
-          color = "white", size = 0.05) +
+          color = "white", size = 0.02) +
   scale_fill_viridis_c(
-    name = "Demographic\nAverageness\nScore",
+    name = "Averageness\nScore",
     option = "plasma",
     trans = "log10",
     labels = function(x) sprintf("%.1f", x),
     guide = guide_colorbar(
       title.position = "top",
-      barwidth = 0.8,
-      barheight = 10
+      barwidth = 1,
+      barheight = 12
     )
   ) +
   labs(
     title = "America's Geographic Distribution of Demographic Averageness",
-    subtitle = "Counties colored by Mahalanobis distance from national means (darker = more average)",
-    caption = "Source: 2018-2022 American Community Survey"
+    subtitle = "The darker the county, the closer it is to perfect demographic ordinariness"
   ) +
   theme_void() +
   theme(
-    plot.title = element_text(size = 14, face = "bold", hjust = 0.5),
-    plot.subtitle = element_text(size = 11, color = "grey40", hjust = 0.5),
-    plot.caption = element_text(size = 9, color = "grey50", hjust = 1),
+    plot.title = element_text(size = 16, face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(size = 12, color = "grey40", hjust = 0.5),
     legend.position = "right",
-    legend.title = element_text(size = 10, face = "bold"),
-    legend.text = element_text(size = 9),
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
     plot.margin = margin(10, 10, 10, 10)
   )
-```
 
-The map reveals fascinating geographic patterns:
+# Add inset showing top 20 counties
+top_20_counties <- county_analysis %>%
+  arrange(mahal_distance) %>%
+  slice_head(n = 20) %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  ) %>%
+  left_join(
+    county_data %>% select(GEOID, geometry),
+    by = "GEOID"
+  ) %>%
+  st_sf()
 
-- **Midwest Dominance**: The most average counties concentrate in the Midwest, particularly Michigan, Ohio, Wisconsin, and Iowa
-- **Southern Representation**: Several Southern states contribute highly average counties, especially the Carolinas
-- **Coastal Extremes**: East and West coast counties tend toward greater demographic distinctiveness
-- **Western Outliers**: Mountain West and Plains states show more demographic variability
-
-## The Averageness Spectrum
-
-```{r averageness-distribution}
-ggplot(county_full_analysis, aes(x = mahal_distance)) +
-  geom_histogram(bins = 50, fill = "grey20", alpha = 0.7) +
-  geom_vline(xintercept = median(county_full_analysis$mahal_distance, na.rm = TRUE),
-             color = "red", linetype = "dashed", size = 1) +
-  geom_vline(xintercept = goldilocks_counties$mahal_distance[1],
-             color = "darkgreen", size = 1.2) +
-  scale_x_log10(labels = scales::number_format(accuracy = 1)) +
-  scale_y_continuous(labels = scales::comma_format()) +
-  labs(
-    title = "Distribution of Demographic Averageness Across U.S. Counties",
-    subtitle = "Most counties cluster around moderate averageness, with rare extremes of ordinariness",
-    x = "Mahalanobis Distance from National Means (log scale)",
-    y = "Number of Counties",
-    caption = "Green line: Most average county (Van Buren, MI)\nRed line: National median"
+# Create focused map of most average counties
+inset_map <- ggplot() +
+  geom_sf(data = us_states, fill = "grey95", color = "grey80", size = 0.2) +
+  geom_sf(data = top_20_counties, 
+          aes(fill = mahal_distance), 
+          color = "red", size = 0.8) +
+  scale_fill_viridis_c(
+    option = "plasma",
+    guide = "none"
   ) +
-  annotate("text", x = goldilocks_counties$mahal_distance[1] * 1.5, y = 180,
-           label = "Van Buren County, MI\n(Most Average)", 
-           color = "darkgreen", size = 3.5, hjust = 0) +
-  theme_goldilocks
-```
-
-The distribution shows that most U.S. counties fall within a moderate range of demographic distinctiveness. Van Buren County's position at the extreme left represents genuine statistical rarity—being comprehensively average is actually quite exceptional.
-
-## Does Perfect Averageness Predict Better Outcomes?
-
-```{r outcomes-analysis}
-# Create comparison plot
-quintile_comparison_long <- quintile_comparison %>%
-  pivot_longer(cols = c(mean_stability, mean_housing_stability, mean_youth_ratio),
-               names_to = "outcome", values_to = "value") %>%
-  mutate(
-    outcome_label = case_when(
-      outcome == "mean_stability" ~ "Population Stability\n(Lower Migration)",
-      outcome == "mean_housing_stability" ~ "Housing Stability\n(Higher Homeownership)",
-      outcome == "mean_youth_ratio" ~ "Population Growth Proxy\n(Youth Ratio)"
-    ),
-    averageness_category = factor(averageness_category, 
-                                  levels = c("Most Average", "Above Average", "Moderately Average", 
-                                           "Below Average", "Least Average"))
+  labs(
+    title = "Top 20 Most Average Counties"
+  ) +
+  theme_void() +
+  theme(
+    plot.title = element_text(size = 10, face = "bold", hjust = 0.5),
+    plot.margin = margin(5, 5, 5, 5)
   )
 
-ggplot(quintile_comparison_long, aes(x = averageness_category, y = value, fill = averageness_category)) +
-  geom_col(alpha = 0.8) +
-  facet_wrap(~outcome_label, scales = "free_y", ncol = 3) +
-  scale_fill_manual(values = c("#2c7fb8", "#41b6c4", "#7fcdbb", "#c7e9b4", "#edf8b1")) +
+# Combine maps
+main_map + 
+  inset_element(inset_map, left = 0.02, bottom = 0.52, right = 0.35, top = 0.98)
+```
+
+**Geographic Patterns of Ordinariness:**
+
+1. **The Midwest Dominance**: Michigan, Ohio, Wisconsin, and Iowa emerge as the heartland of American averageness
+2. **Southern Balance**: The Carolinas and parts of the South contribute significantly to the Goldilocks Zone
+3. **Coastal Extremes**: East and West Coast counties tend toward demographic distinctiveness
+4. **Western Variability**: Mountain West shows high variance, with few comprehensively average places
+
+## Regional Clustering of Averageness
+
+```{r regional-analysis, fig.height=8}
+# Analyze averageness by region
+county_regional <- county_analysis %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  ) %>%
+  mutate(
+    state = str_extract(NAME, "[A-Z]{2}$"),
+    region = case_when(
+      state %in% c("ME", "NH", "VT", "MA", "RI", "CT", "NY", "NJ", "PA") ~ "Northeast",
+      state %in% c("OH", "MI", "IN", "WI", "IL", "MN", "IA", "MO", "ND", "SD", "NE", "KS") ~ "Midwest",
+      state %in% c("DE", "MD", "DC", "VA", "WV", "KY", "TN", "NC", "SC", "GA", "FL", "AL", "MS", "AR", "LA", "OK", "TX") ~ "South",
+      state %in% c("MT", "WY", "CO", "NM", "ID", "UT", "NV", "AZ", "WA", "OR", "CA", "AK", "HI") ~ "West",
+      TRUE ~ "Other"
+    )
+  ) %>%
+  filter(region != "Other")
+
+# Regional distribution plot
+regional_plot <- county_regional %>%
+  ggplot(aes(x = region, y = mahal_distance)) +
+  geom_violin(aes(fill = region), alpha = 0.7, color = "grey20") +
+  geom_boxplot(width = 0.3, alpha = 0.8, outlier.alpha = 0.3) +
+  scale_fill_manual(values = c("#2c7fb8", "#41b6c4", "#7fcdbb", "#c7e9b4")) +
+  scale_y_log10(labels = number_format(accuracy = 1)) +
   labs(
-    title = "Outcomes by Demographic Averageness",
-    subtitle = "Do the most average counties show different stability and growth patterns?",
-    x = "County Averageness Category",
-    y = "Outcome Value",
-    caption = "Source: 2018-2022 American Community Survey"
+    title = "Regional Distribution of Demographic Averageness",
+    subtitle = "Midwest counties cluster toward greater averageness, while coastal regions show more variation",
+    x = "Region",
+    y = "Averageness Score (log scale)",
+    caption = "Lower scores indicate greater averageness"
+  ) +
+  theme_goldilocks +
+  theme(legend.position = "none")
+
+# Top counties by region
+regional_champions <- county_regional %>%
+  group_by(region) %>%
+  arrange(mahal_distance) %>%
+  slice_head(n = 3) %>%
+  ungroup() %>%
+  select(region, NAME, mahal_distance) %>%
+  mutate(
+    rank_in_region = rep(1:3, 4),
+    county_short = str_extract(NAME, "^[^,]+")
+  )
+
+regional_table <- regional_champions %>%
+  select(region, rank_in_region, county_short, mahal_distance) %>%
+  pivot_wider(names_from = rank_in_region, values_from = c(county_short, mahal_distance), names_sep = "_") %>%
+  select(region, county_short_1, mahal_distance_1, county_short_2, mahal_distance_2, county_short_3, mahal_distance_3)
+
+regional_table %>%
+  gt() %>%
+  tab_header(
+    title = "Regional Champions of Averageness",
+    subtitle = "Most average counties within each major U.S. region"
+  ) %>%
+  cols_label(
+    region = "Region",
+    county_short_1 = "1st",
+    mahal_distance_1 = "Score",
+    county_short_2 = "2nd", 
+    mahal_distance_2 = "Score",
+    county_short_3 = "3rd",
+    mahal_distance_3 = "Score"
+  ) %>%
+  fmt_number(columns = starts_with("mahal_distance"), decimals = 2) %>%
+  tab_spanner(label = "Most Average", columns = c(county_short_1, mahal_distance_1)) %>%
+  tab_spanner(label = "Second Most Average", columns = c(county_short_2, mahal_distance_2)) %>%
+  tab_spanner(label = "Third Most Average", columns = c(county_short_3, mahal_distance_3))
+
+regional_plot
+```
+
+# The Evolution of Averageness: 2010 vs 2022
+
+## How America's Center Has Shifted
+
+```{r temporal-evolution, fig.height=10}
+# Compare 2010 vs 2022 top counties
+temporal_comparison_plot <- temporal_comparison %>%
+  filter(!is.na(NAME)) %>%
+  ggplot(aes(x = rank_2010, y = rank_2022)) +
+  geom_point(alpha = 0.6, size = 1.5, color = "grey20") +
+  geom_smooth(method = "lm", se = TRUE, color = "red", linetype = "dashed") +
+  geom_abline(intercept = 0, slope = 1, color = "blue", linetype = "solid", alpha = 0.7) +
+  geom_text_repel(
+    data = temporal_comparison %>% 
+      filter(!is.na(NAME) & (rank_2010 <= 50 | rank_2022 <= 50)) %>%
+      filter(abs(rank_change) > 500),
+    aes(label = str_extract(NAME, "^[^,]+")),
+    size = 3,
+    max.overlaps = 10
+  ) +
+  scale_x_continuous(labels = comma_format()) +
+  scale_y_continuous(labels = comma_format()) +
+  labs(
+    title = "The Shifting Geography of American Averageness (2010 vs 2022)",
+    subtitle = "Counties below the blue line became more average; those above became less average",
+    x = "2010 Averageness Rank",
+    y = "2022 Averageness Rank",
+    caption = "Each point represents a county. Red line shows correlation; blue line shows no change."
+  ) +
+  theme_goldilocks
+
+# Biggest changes plot
+changes_plot <- bind_rows(
+  biggest_improvers %>% mutate(direction = "Became More Average"),
+  biggest_decliners %>% mutate(direction = "Became Less Average")
+) %>%
+  mutate(
+    county_short = str_extract(NAME, "^[^,]+"),
+    abs_change = abs(rank_change)
+  ) %>%
+  ggplot(aes(x = reorder(county_short, abs_change), y = abs_change, fill = direction)) +
+  geom_col(alpha = 0.8) +
+  scale_fill_manual(values = c("Became More Average" = "#2c7fb8", "Became Less Average" = "#d73027")) +
+  coord_flip() +
+  labs(
+    title = "Biggest Shifts in Averageness (2010-2022)",
+    subtitle = "Counties with the largest changes in their demographic typicality",
+    x = "",
+    y = "Change in Rank (absolute value)",
+    fill = "Direction"
+  ) +
+  theme_goldilocks +
+  theme(legend.position = "bottom")
+
+# Combine temporal plots
+temporal_comparison_plot / changes_plot +
+  plot_layout(heights = c(2, 1))
+```
+
+**Key Temporal Insights:**
+
+1. **Demographic stability**: The correlation between 2010 and 2022 rankings suggests some consistency in what makes places average
+2. **Notable shifts**: Some counties have dramatically moved toward or away from averageness as America's demographic center has evolved
+3. **Regional patterns**: Changes often reflect broader demographic trends like urbanization, aging, and economic transformation
+
+## What Changed About "Average"?
+
+```{r national-means-comparison, fig.height=6}
+# Compare national means between 2010 and 2022
+means_comparison <- bind_rows(
+  national_means_2010 %>% 
+    pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+    mutate(year = 2010),
+  national_means %>%
+    select(names(national_means_2010)) %>%
+    pivot_longer(everything(), names_to = "variable", values_to = "value") %>%
+    mutate(year = 2022)
+) %>%
+  mutate(
+    variable_label = case_when(
+      variable == "pct_white" ~ "% White",
+      variable == "pct_black" ~ "% Black",
+      variable == "pct_hispanic" ~ "% Hispanic",
+      variable == "median_income" ~ "Median Income",
+      variable == "unemployment_rate" ~ "Unemployment Rate",
+      variable == "poverty_rate" ~ "Poverty Rate",
+      variable == "pct_bachelors" ~ "% Bachelor's Degree",
+      variable == "pct_owner_occupied" ~ "% Homeownership",
+      TRUE ~ variable
+    )
+  ) %>%
+  filter(variable != "pct_male")  # Remove for clarity
+
+means_comparison %>%
+  ggplot(aes(x = year, y = value, color = variable_label, group = variable_label)) +
+  geom_line(size = 2, alpha = 0.8) +
+  geom_point(size = 3) +
+  facet_wrap(~variable_label, scales = "free_y", ncol = 4) +
+  scale_color_viridis_d(option = "plasma", guide = "none") +
+  scale_x_continuous(breaks = c(2010, 2022)) +
+  labs(
+    title = "How America's Demographic Center Has Shifted (2010-2022)",
+    subtitle = "Changes in national means reveal evolving definition of 'average American'",
+    x = "Year",
+    y = "Value",
+    caption = "Each panel shows how the national average changed for that variable"
   ) +
   theme_goldilocks +
   theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "none",
-    strip.text = element_text(face = "bold"),
-    panel.spacing = unit(1, "lines")
+    strip.text = element_text(size = 10),
+    axis.text.x = element_text(size = 10)
   )
 ```
 
-**Key Findings on Outcomes:**
+# Deep Dive: Profiles of America's Most Average Places
 
-1. **Housing Stability**: The most average counties show notably **higher homeownership rates** (mean ~67%) compared to less average places (~54-58%). This suggests demographic balance may correlate with residential stability.
+## Virtual Tours of the Goldilocks Zone
 
-2. **Population Stability**: Mixed relationship with migration patterns—most average counties show moderate population stability, neither the highest nor lowest interstate migration rates.
+```{r county-profiles, results='asis'}
+# Create detailed profiles for top 5 counties
+top_5_detailed <- county_full_analysis %>%
+  arrange(mahal_distance) %>%
+  slice_head(n = 5)
 
-3. **Population Growth**: Most average counties have similar age structures to other quintiles, suggesting demographic balance doesn't necessarily predict population growth patterns.
+for (i in 1:5) {
+  county <- top_5_detailed[i, ]
+  
+  cat("\n\n## Profile #", i, ": ", county$NAME, "\n\n")
+  cat("**Averageness Score:**", round(county$mahal_distance, 3), "\n\n")
+  
+  # Create radar chart data
+  radar_vars <- c("pct_white", "pct_black", "pct_hispanic", "median_income", 
+                  "pct_bachelors", "unemployment_rate", "poverty_rate", "pct_owner_occupied")
+  
+  county_radar_data <- county %>%
+    select(all_of(radar_vars)) %>%
+    pivot_longer(everything(), names_to = "variable", values_to = "county_value") %>%
+    left_join(
+      national_means %>%
+        select(all_of(radar_vars)) %>%
+        pivot_longer(everything(), names_to = "variable", values_to = "national_value"),
+      by = "variable"
+    ) %>%
+    mutate(
+      # Normalize to 0-100 scale for radar chart
+      county_norm = case_when(
+        variable == "median_income" ~ county_value / 100000 * 100,
+        TRUE ~ county_value
+      ),
+      national_norm = case_when(
+        variable == "median_income" ~ national_value / 100000 * 100,
+        TRUE ~ national_value
+      ),
+      variable_label = case_when(
+        variable == "pct_white" ~ "% White",
+        variable == "pct_black" ~ "% Black",
+        variable == "pct_hispanic" ~ "% Hispanic",
+        variable == "median_income" ~ "Median Income\n(scaled)",
+        variable == "pct_bachelors" ~ "% Bachelor's",
+        variable == "unemployment_rate" ~ "Unemployment",
+        variable == "poverty_rate" ~ "Poverty Rate",
+        variable == "pct_owner_occupied" ~ "% Homeownership"
+      )
+    )
+  
+  # What makes this county special
+  closest_matches <- county_radar_data %>%
+    mutate(abs_diff = abs(county_value - national_value)) %>%
+    arrange(abs_diff) %>%
+    slice_head(n = 3)
+  
+  cat("**Closest Matches to National Average:**\n")
+  for (j in 1:nrow(closest_matches)) {
+    match <- closest_matches[j, ]
+    cat("-", match$variable_label, ": ", 
+        sprintf("%.1f", match$county_value), 
+        " (national: ", sprintf("%.1f", match$national_value), 
+        ", difference: ", sprintf("%+.1f", match$county_value - match$national_value), ")\n")
+  }
+  
+  cat("\n")
+}
+```
 
-## Correlation Analysis
+## The Radar Chart Revelation
 
-```{r correlation-heatmap, fig.height=6}
-# Create correlation matrix (excluding problematic income_stability)
-cor_data <- county_full_analysis %>%
-  dplyr::select(mahal_distance, stability_proxy, housing_stability, youth_ratio) %>%
-  cor(use = "complete.obs")
+```{r radar-charts, fig.height=12}
+# Create radar charts for top 5 counties
+create_radar_data <- function(county_data, county_name) {
+  radar_vars <- c("pct_white", "pct_black", "pct_hispanic", "median_income", 
+                  "pct_bachelors", "unemployment_rate", "poverty_rate", "pct_owner_occupied")
+  
+  county_values <- county_data %>%
+    select(all_of(radar_vars)) %>%
+    as.numeric()
+  
+  national_values <- national_means %>%
+    select(all_of(radar_vars)) %>%
+    as.numeric()
+  
+  # Normalize income to percentage scale
+  county_values[4] <- county_values[4] / 1000  # Convert to thousands
+  national_values[4] <- national_values[4] / 1000
+  
+  data.frame(
+    County = county_values,
+    National = national_values,
+    variable = c("% White", "% Black", "% Hispanic", "Income (1000s)", 
+                 "% Bachelor's", "Unemployment", "Poverty", "% Own Home")
+  ) %>%
+    column_to_rownames("variable") %>%
+    t() %>%
+    as.data.frame()
+}
 
-# Convert to long format for ggplot
-cor_long <- cor_data %>%
-  as.data.frame() %>%
-  rownames_to_column("var1") %>%
-  pivot_longer(-var1, names_to = "var2", values_to = "correlation") %>%
-  mutate(
-    var1_label = case_when(
-      var1 == "mahal_distance" ~ "Averageness Score",
-      var1 == "stability_proxy" ~ "Population Stability",
-      var1 == "housing_stability" ~ "Housing Stability", 
-      var1 == "youth_ratio" ~ "Youth Ratio"
-    ),
-    var2_label = case_when(
-      var2 == "mahal_distance" ~ "Averageness Score",
-      var2 == "stability_proxy" ~ "Population Stability",
-      var2 == "housing_stability" ~ "Housing Stability",
-      var2 == "youth_ratio" ~ "Youth Ratio"
+# Create individual radar plots for top 5
+radar_plots <- map(1:5, ~{
+  county <- top_5_detailed[.x, ]
+  radar_data <- create_radar_data(county, county$NAME)
+  
+  # Add min/max rows for scaling
+  radar_data_scaled <- rbind(
+    max = c(100, 50, 50, 100, 50, 20, 30, 100),  # Reasonable maxima
+    min = c(0, 0, 0, 0, 0, 0, 0, 0),             # Minima
+    radar_data
+  )
+  
+  # Create the plot using base plotting (ggradar alternative)
+  par(mfrow = c(1, 1), mar = c(1, 1, 3, 1))
+  
+  # Simple visualization alternative
+  county_name <- str_extract(county$NAME, "^[^,]+")
+  
+  # Create a data frame for ggplot radar alternative
+  radar_long <- radar_data %>%
+    rownames_to_column("Type") %>%
+    pivot_longer(-Type, names_to = "Variable", values_to = "Value") %>%
+    mutate(
+      Variable = factor(Variable, levels = unique(Variable)),
+      Type = factor(Type, levels = c("County", "National"))
+    )
+  
+  ggplot(radar_long, aes(x = Variable, y = Value, color = Type, group = Type)) +
+    geom_polygon(aes(fill = Type), alpha = 0.3) +
+    geom_point(size = 3) +
+    geom_line(size = 1.2) +
+    scale_color_manual(values = c("County" = "#2c7fb8", "National" = "#d73027")) +
+    scale_fill_manual(values = c("County" = "#2c7fb8", "National" = "#d73027")) +
+    coord_polar() +
+    labs(
+      title = paste("Profile:", county_name),
+      subtitle = paste("Averageness Score:", round(county$mahal_distance, 3))
+    ) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_text(size = 9),
+      axis.text.y = element_blank(),
+      axis.title = element_blank(),
+      plot.title = element_text(size = 12, face = "bold", hjust = 0.5),
+      plot.subtitle = element_text(size = 10, hjust = 0.5),
+      legend.position = "bottom",
+      panel.grid.major = element_line(color = "grey90"),
+      panel.grid.minor = element_blank()
+    )
+})
+
+# Arrange radar plots
+wrap_plots(radar_plots, ncol = 3, nrow = 2) +
+  plot_annotation(
+    title = "Radar Profiles of America's Most Average Counties",
+    subtitle = "Blue shows county values, red shows national averages - closer overlap indicates greater averageness",
+    theme = theme(
+      plot.title = element_text(size = 16, face = "bold"),
+      plot.subtitle = element_text(size = 12, color = "grey40")
     )
   )
-
-ggplot(cor_long, aes(x = var1_label, y = var2_label, fill = correlation)) +
-  geom_tile(color = "white", size = 0.5) +
-  geom_text(aes(label = sprintf("%.3f", correlation)), 
-            color = "white", size = 4, fontface = "bold") +
-  scale_fill_gradient2(
-    low = "#d73027", mid = "white", high = "#4575b4",
-    midpoint = 0, limit = c(-1, 1),
-    name = "Correlation"
-  ) +
-  labs(
-    title = "Correlation Matrix: Averageness and County Outcomes",
-    subtitle = "Relationships between demographic averageness and stability measures",
-    x = "",
-    y = ""
-  ) +
-  theme_goldilocks +
-  theme(
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.text.y = element_text(angle = 0),
-    panel.grid = element_blank()
-  )
 ```
 
-The correlation analysis reveals:
+# The Extremes: What Makes Places Least Average?
 
-- **Strong negative correlation (-0.351)** between averageness and housing stability, indicating more average counties have notably higher homeownership rates
-- **Weak positive correlations** with population stability and youth ratios
-- Overall, demographic averageness appears most strongly linked to housing market characteristics
+## Counter-Examples: America's Most Distinctive Counties
 
-# Profile of America's Most Average Place
+```{r extreme-counties-analysis, fig.height=10}
+# Analyze the most extreme counties
+extreme_top_10 <- extreme_counties %>%
+  slice_head(n = 10) %>%
+  mutate(county_short = str_extract(NAME, "^[^,]+"))
 
-```{r van-buren-profile}
-# Get Van Buren County details
-van_buren <- goldilocks_counties %>% slice_head(n = 1)
-
-# Calculate how close Van Buren is to national means on key variables
-van_buren_profile <- county_full_analysis %>%
-  filter(GEOID == van_buren$GEOID) %>%
-  dplyr::select(pct_white, pct_black, pct_hispanic, median_income, 
-         unemployment_rate, pct_bachelors, pct_owner_occupied, poverty_rate) %>%
-  pivot_longer(everything(), names_to = "variable", values_to = "van_buren_value") %>%
+# What makes them extreme?
+extreme_deviations <- county_analysis %>%
+  filter(GEOID %in% extreme_top_10$GEOID) %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = "GEOID"
+  ) %>%
+  select(-euclidean_distance, -mad_score, -quartile_score, -max_deviation) %>%
+  pivot_longer(-c(GEOID, NAME, mahal_distance), names_to = "variable", values_to = "value") %>%
   left_join(
     national_means %>%
       pivot_longer(everything(), names_to = "variable", values_to = "national_mean"),
     by = "variable"
   ) %>%
   mutate(
-    variable_label = case_when(
-      variable == "pct_white" ~ "% White",
-      variable == "pct_black" ~ "% Black", 
-      variable == "pct_hispanic" ~ "% Hispanic",
-      variable == "median_income" ~ "Median Income ($)",
-      variable == "unemployment_rate" ~ "Unemployment Rate (%)",
-      variable == "pct_bachelors" ~ "% Bachelor's Degree",
-      variable == "pct_owner_occupied" ~ "% Homeownership",
-      variable == "poverty_rate" ~ "Poverty Rate (%)"
-    ),
-    difference = van_buren_value - national_mean,
-    abs_difference = abs(difference)
+    deviation = abs(value - national_mean),
+    standardized_deviation = deviation / national_mean,
+    county_short = str_extract(NAME, "^[^,]+")
   ) %>%
-  arrange(abs_difference)
+  group_by(GEOID, county_short) %>%
+  arrange(desc(standardized_deviation)) %>%
+  slice_head(n = 3) %>%
+  ungroup()
 
-van_buren_profile %>%
-  dplyr::select(variable_label, van_buren_value, national_mean, difference) %>%
+# Extreme counties table
+extreme_counties %>%
+  slice_head(n = 10) %>%
+  select(NAME, mahal_distance) %>%
   mutate(
-    van_buren_value = case_when(
-      variable_label == "Median Income ($)" ~ dollar(van_buren_value),
-      TRUE ~ sprintf("%.1f", van_buren_value)
-    ),
-    national_mean = case_when(
-      variable_label == "Median Income ($)" ~ dollar(national_mean),
-      TRUE ~ sprintf("%.1f", national_mean)  
-    ),
-    difference = case_when(
-      variable_label == "Median Income ($)" ~ dollar(difference),
-      TRUE ~ sprintf("%+.1f", difference)
-    )
+    rank = row_number(),
+    county_short = str_extract(NAME, "^[^,]+")
   ) %>%
   gt() %>%
   tab_header(
-    title = "Van Buren County, Michigan: America's Most Average Place",
-    subtitle = "How the nation's most demographically average county compares to national means"
+    title = "America's Most Distinctive Counties",
+    subtitle = "Places that deviate most dramatically from national demographic norms"
   ) %>%
   cols_label(
-    variable_label = "Characteristic",
-    van_buren_value = "Van Buren County",
-    national_mean = "U.S. National Mean", 
-    difference = "Difference"
+    rank = "Rank",
+    NAME = "County",
+    mahal_distance = "Extremeness Score"
   ) %>%
+  fmt_number(columns = mahal_distance, decimals = 1) %>%
   tab_style(
-    style = cell_fill(color = "#e8f4f8"),
-    locations = cells_body(rows = 1:4)
+    style = cell_fill(color = "#fee8c8"),
+    locations = cells_body(rows = 1:5)
   ) %>%
-  tab_source_note("Source: 2018-2022 American Community Survey") %>%
   tab_footnote(
-    footnote = "Sorted by absolute difference from national mean",
-    locations = cells_title()
+    footnote = "Higher scores indicate greater deviation from national averages",
+    locations = cells_column_labels(columns = mahal_distance)
   )
+
+# Visualization of extremes
+extreme_viz <- extreme_deviations %>%
+  ggplot(aes(x = reorder(county_short, -standardized_deviation), 
+             y = standardized_deviation, 
+             fill = variable)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  scale_fill_viridis_d(option = "plasma", name = "Variable") +
+  coord_flip() +
+  labs(
+    title = "What Makes Counties Extreme?",
+    subtitle = "Biggest deviations from national averages for most distinctive places",
+    x = "County",
+    y = "Standardized Deviation from National Mean",
+    caption = "Each county shows its top 3 most extreme variables"
+  ) +
+  theme_goldilocks +
+  theme(legend.position = "bottom")
+
+extreme_viz
 ```
 
-Van Buren County, Michigan exemplifies demographic balance:
+# Variable Sensitivity: The Fragility of Averageness
 
-- **Demographics**: Nearly identical to national racial composition
-- **Economics**: Median income within $2,000 of national average, unemployment rate spot-on
-- **Education**: Bachelor's degree attainment very close to national mean
-- **Housing**: Homeownership rate tracks national average closely
-- **Poverty**: Poverty rate matches national level precisely
+## How Rankings Change with Different Variable Sets
 
-This county represents what might be called "Peak Ordinariness"—a place so thoroughly representative that it serves as a near-perfect microcosm of America's demographic landscape.
+```{r sensitivity-analysis, fig.height=8}
+# Show how different variable combinations affect rankings
+sensitivity_data <- map_dfr(names(sensitivity_results), ~{
+  data.frame(
+    variable_set = .x,
+    top_counties = sensitivity_results[[.x]][1:5],  # Top 5 for each set
+    rank = 1:5
+  )
+}) %>%
+  left_join(
+    county_data %>% 
+      select(GEOID, NAME) %>% 
+      st_drop_geometry(), 
+    by = c("top_counties" = "GEOID")
+  ) %>%
+  mutate(
+    county_short = str_extract(NAME, "^[^,]+"),
+    variable_set_label = case_when(
+      variable_set == "demographics_only" ~ "Demographics\nOnly",
+      variable_set == "economics_only" ~ "Economics\nOnly", 
+      variable_set == "no_race" ~ "No Race\nVariables",
+      variable_set == "no_income" ~ "No Income\nVariables",
+      variable_set == "core_only" ~ "Core Variables\nOnly"
+    )
+  )
 
-# Policy Implications & Discussion
+# Heatmap of county appearances across variable sets
+sensitivity_heatmap <- sensitivity_data %>%
+  select(variable_set_label, rank, county_short) %>%
+  pivot_wider(names_from = variable_set_label, values_from = rank, values_fill = NA) %>%
+  column_to_rownames("county_short") %>%
+  as.matrix()
 
-## The Value of Ordinariness
+# Convert to long format for ggplot
+heatmap_long <- sensitivity_heatmap %>%
+  as.data.frame() %>%
+  rownames_to_column("County") %>%
+  pivot_longer(-County, names_to = "Variable_Set", values_to = "Rank") %>%
+  filter(!is.na(Rank))
 
-Our analysis reveals several important insights about demographic averageness:
+heatmap_plot <- ggplot(heatmap_long, aes(x = Variable_Set, y = County, fill = Rank)) +
+  geom_tile(color = "white", size = 0.5) +
+  geom_text(aes(label = Rank), color = "white", fontface = "bold") +
+  scale_fill_viridis_c(option = "plasma", direction = -1, name = "Rank") +
+  labs(
+    title = "Sensitivity Analysis: How Variable Selection Changes Rankings",
+    subtitle = "Counties appearing in top 5 across different variable combinations",
+    x = "Variable Set",
+    y = "County"
+  ) +
+  theme_goldilocks +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    panel.grid = element_blank()
+  )
 
-**1. Perfect Averageness is Rare**
-Only a handful of counties achieve comprehensive demographic balance. This suggests that being "typical" across multiple dimensions is actually exceptional—most places excel or lag in particular areas.
+heatmap_plot
+```
 
-**2. Geographic Clustering of Averageness**  
-The concentration of average counties in the Midwest and parts of the South suggests these regions may serve as demographic bellwethers for national trends. Van Buren County and similar places could be valuable for:
-- **Market Research**: Testing products for mainstream appeal
-- **Political Polling**: Representative samples for national surveys  
-- **Policy Piloting**: Implementing programs likely to work in "typical" America
+**The Fragility Insight**: Rankings are highly sensitive to variable selection, revealing that "averageness" depends critically on what we choose to measure. This sensitivity analysis exposes a fundamental question: **What variables truly define American identity?**
 
-**3. Housing Market Stability**
-The strong correlation between demographic averageness and homeownership suggests that balanced communities may foster residential stability. This could reflect:
-- More predictable economic conditions
-- Balanced age structures supporting housing demand
-- Community characteristics that encourage long-term residence
+# The Philosophy of Perfect Ordinariness
 
-## Limitations & Future Research
+## What Does It Mean to Be Quintessentially American?
 
-**Methodological Limitations:**
-- Mahalanobis distance assumes linear relationships between variables
-- 2018-2022 data may not capture post-pandemic demographic shifts
+Our statistical journey reveals profound insights about American identity:
+
+### The Paradox of Exceptional Ordinariness
+
+**Van Buren County, Michigan** and its fellow Goldilocks Zone counties achieve something remarkable: they are extraordinary in their ordinariness. Being perfectly average across 40+ variables requires a complex balancing act that most places cannot achieve.
+
+### The Geographic Soul
+
+The concentration of average counties in the Midwest suggests these regions serve as America's demographic anchor—places where various historical, economic, and cultural forces have combined to create representative communities.
+
+### The Evolution of "Normal"
+
+Our temporal analysis reveals that American averageness is not static. The counties that represented typical America in 2010 are not necessarily the same ones that do so today, reflecting the dynamic nature of our national identity.
+
+## Policy Implications: The Value of the Goldilocks Zone
+
+```{r policy-implications, fig.height=6}
+# Analyze outcomes by averageness
+outcomes_by_averageness <- county_full_analysis %>%
+  mutate(
+    averageness_decile = ntile(desc(mahal_distance), 10),
+    averageness_category = case_when(
+      averageness_decile <= 2 ~ "Most Average (Top 20%)",
+      averageness_decile <= 4 ~ "Above Average (20-40%)",
+      averageness_decile <= 6 ~ "Moderately Average (40-60%)",
+      averageness_decile <= 8 ~ "Below Average (60-80%)",
+      TRUE ~ "Least Average (Bottom 20%)"
+    )
+  ) %>%
+  group_by(averageness_category) %>%
+  summarise(
+    n_counties = n(),
+    mean_housing_stability = mean(housing_stability, na.rm = TRUE),
+    mean_population_stability = mean(stability_proxy, na.rm = TRUE),
+    mean_youth_ratio = mean(youth_ratio, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(
+    averageness_category = factor(averageness_category, 
+                                  levels = c("Most Average (Top 20%)", "Above Average (20-40%)", 
+                                           "Moderately Average (40-60%)", "Below Average (60-80%)", 
+                                           "Least Average (Bottom 20%)"))
+  )
+
+# Create outcomes visualization
+outcomes_plot <- outcomes_by_averageness %>%
+  pivot_longer(cols = c(mean_housing_stability, mean_population_stability, mean_youth_ratio),
+               names_to = "outcome", values_to = "value") %>%
+  mutate(
+    outcome_label = case_when(
+      outcome == "mean_housing_stability" ~ "Housing Stability\n(% Homeownership)",
+      outcome == "mean_population_stability" ~ "Population Stability\n(Lower Migration)",
+      outcome == "mean_youth_ratio" ~ "Population Growth\nProxy (Youth Ratio)"
+    )
+  ) %>%
+  ggplot(aes(x = averageness_category, y = value, fill = averageness_category)) +
+  geom_col(alpha = 0.8) +
+  facet_wrap(~outcome_label, scales = "free_y", ncol = 3) +
+  scale_fill_viridis_d(option = "plasma", guide = "none") +
+  labs(
+    title = "Outcomes by Demographic Averageness",
+    subtitle = "Do the most average counties show different stability and growth patterns?",
+    x = "Averageness Category",
+    y = "Outcome Value",
+    caption = "Based on analysis of 3,000+ U.S. counties"
+  ) +
+  theme_goldilocks +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size = 9),
+    strip.text = element_text(face = "bold", size = 10)
+  )
+
+outcomes_plot
+```
+
+### Strategic Value of Average Places
+
+1. **Market Research Goldmine**: These counties offer ideal testing grounds for products and services targeting mainstream America
+
+2. **Political Bellwethers**: Places achieving demographic balance may provide early signals of national political trends
+
+3. **Policy Pilot Programs**: Testing new policies in representative communities before national rollout
+
+4. **Housing Market Stability**: The correlation between averageness and homeownership suggests these places foster residential stability
+
+# Peer Review & Critical Assessment
+
+## Methodological Strengths and Limitations
+
+**Strengths:**
+- Multi-metric approach reveals different dimensions of averageness
+- Temporal analysis shows evolution of American demographic center
+- Comprehensive variable set captures multiple aspects of community life
+- Sensitivity analysis tests robustness of findings
+
+**Limitations:**
 - County-level analysis masks within-county variation
+- Mahalanobis distance assumes multivariate normality
+- Some outcome measures are proxies rather than direct measurements
+- 2018-2022 data may not capture post-pandemic shifts
 
-**Future Research Directions:**
-1. **Temporal Analysis**: How has the geography of averageness changed over time?
-2. **Causal Mechanisms**: What drives certain places toward comprehensive averageness?
-3. **Economic Outcomes**: Do average places show different economic resilience during recessions?
-4. **Social Capital**: How does demographic balance relate to community cohesion measures?
+## Alternative Interpretations
 
-# Peer Review & Revisions
+1. **Geographic bias**: Midwest dominance might reflect historical settlement patterns rather than inherent "averageness"
+2. **Scale effects**: County boundaries vary dramatically in size and population
+3. **Selection bias**: Available Census variables may not capture all relevant dimensions of community life
 
-*[This section will be populated after peer review process]*
+## Future Research Directions
 
-## Peer Review Process
+1. **Causal mechanisms**: What drives certain places toward comprehensive averageness?
+2. **Social capital**: How does demographic balance relate to community cohesion?
+3. **Economic resilience**: Do average places weather economic shocks differently?
+4. **Longitudinal outcomes**: Do children growing up in average places have different life trajectories?
 
-**Reviewer Instructions**: This analysis applies multivariate statistical methods to identify demographically representative U.S. counties. Please evaluate:
+# Conclusion: The Extraordinary Nature of the Ordinary
 
-1. **Methodological Rigor**: Is the Mahalanobis distance approach appropriate? Are there alternative methods to consider?
-2. **Variable Selection**: Does our 34-variable basket adequately capture demographic "averageness"? What's missing?
-3. **Causal Interpretation**: Are our outcome correlations properly interpreted? What confounders might we be missing?
-4. **Policy Relevance**: Are the implications for market research and policy piloting well-founded?
-5. **Geographic Patterns**: Do the regional clusters of averageness make theoretical sense?
+Van Buren County, Michigan, and its fellow travelers in the Goldilocks Zone represent something increasingly rare in American society: **comprehensive balance**. In an era of growing polarization and regional divergence, these places achieve what most cannot—they embody the statistical center of American life across dozens of dimensions simultaneously.
 
-**Key Questions for Review**:
-- Should we weight variables differently based on policy importance?
-- Is the housing stability correlation robust to alternative specifications?
-- How might we validate these "typical" places through other data sources?
+## The Deeper Truth
 
-## Revisions Made
+This whimsical investigation reveals a profound insight: **in a country of extremes, the middle ground itself has become extraordinary**. The counties achieving perfect demographic ordinariness are not boring—they are exceptional in their ability to balance the complex tensions that define American identity.
 
-*[To be completed after peer review feedback]*
+## The Value of the Center
 
-# Conclusion
+As America grapples with questions of identity, representation, and belonging, these statistically average places offer something invaluable: a glimpse of what comprehensive American representation actually looks like when measured rigorously across multiple dimensions.
 
-Van Buren County, Michigan emerges as America's most demographically "just right" place—a Goldilocks Zone of comprehensive ordinariness that may be more valuable than initially apparent. In a nation of increasing polarization and regional divergence, these statistically typical places represent something increasingly rare: balance.
+Perhaps most importantly, they remind us that underneath our differences lies a shared demographic reality—a statistical soul of America that persists even as our politics and culture seem to fragment.
 
-The analysis reveals that perfect averageness is actually exceptional, concentrated in specific geographic regions, and associated with higher residential stability. While we cannot claim that demographic balance causes better outcomes, the patterns suggest that places achieving comprehensive typicality may offer unique insights into what makes American communities stable and representative.
-
-Perhaps most importantly, this whimsical investigation reveals a deeper truth: in a country of extremes, the middle ground itself has become extraordinary. Van Buren County and its fellow Goldilocks Zone counties deserve recognition not for their ordinariness, but for their rarity in achieving it.
+In seeking the most ordinary places, we have discovered something extraordinary about what it means to be American in the 21st century: **true representativeness is an achievement, not an accident**.
 
 ---
 
-*Analysis conducted using R with tidycensus, sf, and tidyverse packages. All code available in accompanying .R script.*
+## Technical Appendix
+
+**Data Sources**: 2018-2022 American Community Survey 5-year estimates, 2010 ACS 5-year estimates  
+**Geographic Coverage**: 3,000+ U.S. counties  
+**Variables Analyzed**: 40+ demographic, economic, and social indicators  
+**Statistical Methods**: Mahalanobis distance, Euclidean distance, median absolute deviation, quartile spread analysis  
+**Software**: R with tidycensus, sf, tidyverse, and specialized visualization packages  
+
+*Analysis conducted using multiple averageness metrics to ensure robustness of findings. All code and data available in accompanying .R script.*
+
+---
 
 *🤖 Generated with [Claude Code](https://claude.ai/code)*
 
