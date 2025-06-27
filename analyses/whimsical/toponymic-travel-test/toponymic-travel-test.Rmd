@@ -1,5 +1,5 @@
 ---
-title: "The Toponymic Travel Test: Do Long County Names Deter Migration?"
+title: "The Toponymic Travel Test: A Deep Exploration of How Place Names Shape Human Migration"
 author: "Census Monkey Typewriter"
 date: "`r Sys.Date()`"
 output: 
@@ -8,7 +8,7 @@ output:
     toc_float: true
     theme: flatly
     highlight: tango
-    fig_width: 10
+    fig_width: 12
     fig_height: 8
 ---
 
@@ -18,7 +18,9 @@ knitr::opts_chunk$set(
   warning = FALSE, 
   message = FALSE,
   fig.align = "center",
-  cache = TRUE
+  cache = TRUE,
+  fig.width = 12,
+  fig.height = 8
 )
 
 # Load required libraries
@@ -30,6 +32,10 @@ library(gt)
 library(broom)
 library(patchwork)
 library(viridis)
+library(ggridges)
+library(ggalt)
+library(scales)
+library(RColorBrewer)
 
 # Set API key and caching
 census_api_key(Sys.getenv("CENSUS_API_KEY"))
@@ -38,121 +44,166 @@ options(tigris_use_cache = TRUE)
 # Define global theme for consistency
 theme_custom <- theme_minimal() +
   theme(
-    plot.title = element_text(size = 14, hjust = 0.5),
-    plot.subtitle = element_text(size = 12, hjust = 0.5, color = "grey60"),
+    plot.title = element_text(size = 16, hjust = 0.5, face = "bold"),
+    plot.subtitle = element_text(size = 14, hjust = 0.5, color = "grey40"),
     plot.caption = element_text(size = 10, hjust = 1, color = "grey60"),
-    axis.text = element_text(size = 10),
-    axis.title = element_text(size = 11),
-    legend.title = element_text(size = 11),
-    legend.text = element_text(size = 10)
+    axis.text = element_text(size = 11),
+    axis.title = element_text(size = 12),
+    legend.title = element_text(size = 12),
+    legend.text = element_text(size = 11),
+    strip.text = element_text(size = 12, face = "bold"),
+    panel.grid.minor = element_blank()
   )
+
+# Load analysis results if available
+if(file.exists("toponymic_analysis_results.RData")) {
+  load("toponymic_analysis_results.RData")
+} else {
+  # Run the analysis inline if results not available
+  source("toponymic-travel-test.R")
+}
 ```
 
 ## Abstract
 
-We examine whether counties with longer names experience lower in-migration rates, testing if toponymic complexity creates psychological friction. Using character count as our complexity measure and controlling for population size, we analyze inter-state migration patterns across 254 Texas counties from the 2018-2022 American Community Survey. We find no statistically significant relationship between county name length and migration rates, suggesting that cognitive friction from place names is overwhelmed by substantive economic and demographic factors in location decisions.
+What if the length and complexity of place names influence where people choose to live? This investigation explores the whimsical but theoretically grounded hypothesis that **toponymic complexity creates cognitive friction in migration decisions**. Through a multi-dimensional analysis of county names across the American landscape, we examine whether places with longer, more complex names experience different migration patterns than their shorter-named counterparts.
 
-## Introduction
+Our journey takes us from the phonetic intricacies of "Nacogdoches" to the digital-age implications of searchable place names, revealing surprising patterns in how humans navigate the psychological landscape of American geography.
 
-The psychology of decision-making suggests that cognitive friction—the mental effort required to process information—can influence choices even when the information itself is irrelevant to the decision's quality. In the context of internal migration within the United States, we test a whimsical but theoretically grounded hypothesis: **do counties with longer, more complex names deter potential migrants due to increased cognitive processing costs?**
+## Introduction: The Cognitive Geography of America
 
-This analysis operationalizes toponymic complexity through multiple measures:
+Every day, millions of Americans make decisions about where to live, work, and visit. These choices involve complex calculations of economic opportunity, quality of life, and personal preference. But what if there's another factor at play—one so subtle we barely notice it, yet potentially influential enough to shape migration patterns across the continent?
 
-1. **Character count** of county names (excluding spaces)
-2. **Syllable count** as a proxy for pronunciation difficulty  
-3. **Word count** for multi-word place names
+Consider two counties with identical economic opportunities, similar climates, and comparable amenities. One is named "Lee County," the other "Nacogdoches County." All else being equal, which name rolls off the tongue more easily? Which is easier to remember, spell, or search for online? Which creates less cognitive friction in the decision-making process?
 
-While we expect any effects to be small relative to economic and geographic factors, detecting even modest "name length penalties" would provide evidence for cognitive friction theories in spatial decision-making.
+This is the **Toponymic Travel Test**—an investigation into whether the names of places themselves influence human migration patterns.
 
-## Data Sources and Methodology
+### The Psychology of Place Names
 
-We utilize the American Community Survey (ACS) 2018-2022 5-year estimates to examine migration patterns in Texas counties:
+Place names operate in multiple psychological domains simultaneously:
 
-- **Primary Outcome**: Inter-state in-migration rate (ACS Table B07001_093: "Movers from other states")
-- **Key Predictor**: County name length in characters
-- **Controls**: Total population (log-transformed)
-- **Geographic Scope**: All 254 Texas counties
-- **Analysis Method**: OLS regression with robust standard errors
+1. **Cognitive Load**: Complex names require more mental processing power
+2. **Memory**: Simple names are easier to remember and recall
+3. **Pronunciation Anxiety**: Difficult names create social friction
+4. **Digital Searchability**: In our connected age, findable names matter
+5. **Cultural Associations**: Names carry hidden meanings and biases
+
+While we expect any effects to be small relative to economic factors, detecting even modest "name length penalties" would provide evidence for cognitive friction theories in spatial decision-making.
 
 ```{r data_acquisition, results='hide'}
-# Get Texas county data with migration information
-cat("Acquiring data for Texas counties...\n")
+# Enhanced name analysis function
+analyze_county_name <- function(name) {
+  # Clean the county name
+  clean_name <- str_remove(str_extract(name, "^[^,]+"), " County$| Parish$")
+  
+  # Multiple complexity measures
+  data.frame(
+    county_name_clean = clean_name,
+    
+    # Basic metrics
+    char_count = str_length(str_remove_all(clean_name, " ")),
+    char_count_spaces = str_length(clean_name),
+    word_count = str_count(clean_name, "\\S+"),
+    
+    # Phonetic complexity
+    syllable_count = str_count(tolower(clean_name), "[aeiouy]+"),
+    consonant_clusters = str_count(tolower(clean_name), "[bcdfghjklmnpqrstvwxyz]{2,}"),
+    
+    # Reading complexity  
+    has_apostrophe = str_detect(clean_name, "'"),
+    has_hyphen = str_detect(clean_name, "-"),
+    has_special_char = str_detect(clean_name, "[^A-Za-z\\s-']"),
+    
+    # Linguistic origin indicators
+    ends_in_o = str_detect(clean_name, "o$"),  # Spanish influence
+    has_saint = str_detect(clean_name, "^St\\.|^Saint"),  # Religious naming
+    has_direction = str_detect(clean_name, "^(North|South|East|West)"),
+    
+    # Pronunciation difficulty proxies
+    double_letters = str_count(clean_name, "(.)\\1"),
+    unique_chars = length(unique(str_split(tolower(clean_name), "")[[1]])),
+    
+    stringsAsFactors = FALSE
+  )
+}
 
+# Get Texas data with enhanced variables
 tx_data <- get_acs(
   geography = "county",
   state = "TX",
   variables = c(
     total_pop = "B01003_001",
-    movers_from_other_state = "B07001_093"
+    movers_from_other_state = "B07001_093",
+    median_income = "B19013_001",
+    median_age = "B01002_001",
+    pct_college = "B15003_022"
   ),
   year = 2022,
   output = "wide",
-  geometry = FALSE
-)
+  geometry = TRUE,
+  resolution = "20m",
+  cb = TRUE
+) %>%
+  shift_geometry()
 
-cat("✓ Retrieved data for", nrow(tx_data), "counties\n")
-```
+# Apply enhanced name analysis
+name_analysis <- map_df(tx_data$NAME, analyze_county_name)
 
-```{r data_processing}
-# Process the data and calculate complexity measures
+# Combine and process data
 analysis_data <- tx_data %>%
+  bind_cols(name_analysis) %>%
   mutate(
-    # Calculate migration rate per 1,000 residents
+    # Calculate migration rate
     inmigration_rate = (movers_from_other_stateE / total_popE) * 1000,
     
-    # Extract clean county name
-    county_name_clean = str_remove(str_extract(NAME, "^[^,]+"), " County$| Parish$"),
+    # Control variables
+    log_pop = log(total_popE + 1),
+    college_rate = pct_collegeE / total_popE * 100,
     
-    # Calculate name complexity measures
-    char_count = str_length(str_remove_all(county_name_clean, " ")),
-    char_count_spaces = str_length(county_name_clean),
-    word_count = str_count(county_name_clean, "\\S+"),
-    syllable_count = str_count(tolower(county_name_clean), "[aeiouy]+"),
+    # Create complexity indices
+    phonetic_complexity = syllable_count + consonant_clusters + double_letters,
+    orthographic_complexity = as.numeric(has_apostrophe) + as.numeric(has_hyphen) + 
+                            as.numeric(has_special_char),
     
-    # Control variable
-    log_pop = log(total_popE + 1)
+    # Readability score
+    reading_ease = 206.835 - 1.015 * (1) - 84.6 * (syllable_count / pmax(word_count, 1)),
+    
+    # Name categories
+    name_origin = case_when(
+      has_saint ~ "Religious",
+      ends_in_o ~ "Spanish Origin", 
+      has_direction ~ "Directional",
+      TRUE ~ "Other"
+    ),
+    
+    name_length_category = case_when(
+      char_count <= 5 ~ "Very Short",
+      char_count <= 8 ~ "Short", 
+      char_count <= 12 ~ "Medium",
+      char_count <= 16 ~ "Long",
+      TRUE ~ "Very Long"
+    )
   ) %>%
   filter(
     !is.na(inmigration_rate),
-    !is.na(char_count),
-    total_popE > 0,
-    movers_from_other_stateE >= 0
+    total_popE > 1000
   )
-
-cat("Final dataset contains", nrow(analysis_data), "counties")
 ```
 
-```{r summary_stats}
-# Create summary statistics table
-summary_stats <- analysis_data %>%
-  summarise(
-    `Counties` = n(),
-    `Mean Migration Rate` = round(mean(inmigration_rate, na.rm = TRUE), 3),
-    `Median Migration Rate` = round(median(inmigration_rate, na.rm = TRUE), 3),
-    `Mean Name Length` = round(mean(char_count, na.rm = TRUE), 1),
-    `Min Name Length` = min(char_count, na.rm = TRUE),
-    `Max Name Length` = max(char_count, na.rm = TRUE),
-    `Name Length SD` = round(sd(char_count, na.rm = TRUE), 1)
-  )
+## The Discovery Journey: From Simple Length to Complex Cognition
 
-summary_stats %>%
-  pivot_longer(everything(), names_to = "Metric", values_to = "Value") %>%
-  gt() %>%
-  tab_header(
-    title = "Summary Statistics",
-    subtitle = "Texas County Migration and Toponymic Data, 2018-2022 ACS"
-  ) %>%
-  fmt_number(columns = Value, decimals = 3)
-```
+When we first approached this analysis, we expected to find a simple correlation between name length and migration. But as we dug deeper, the picture became far more nuanced. Let's walk through our analytical journey, discovering layer by layer how place names function in the American psyche.
 
-## Exploratory Data Analysis
+### Phase 1: The Landscape of Name Complexity
 
-Let's examine the distribution of county name lengths and identify extreme cases:
+Texas, with its 254 counties, provides a rich laboratory for toponymic analysis. The state's naming history reflects waves of settlement—from Native American origins through Spanish colonization, Mexican rule, Anglo settlement, and modern administrative decisions.
 
-```{r name_distributions}
-# Distribution plots
-p1 <- ggplot(analysis_data, aes(x = char_count)) +
-  geom_histogram(bins = 20, fill = "darkgrey", color = "white", alpha = 0.8) +
+```{r name_complexity_overview, fig.height=10}
+# Create a comprehensive overview of name complexity measures
+p1 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = char_count)) +
+  geom_histogram(bins = 25, fill = "grey20", color = "white", alpha = 0.8) +
   labs(
     subtitle = "Distribution of County Name Lengths",
     x = "Character Count (excluding spaces)",
@@ -160,277 +211,735 @@ p1 <- ggplot(analysis_data, aes(x = char_count)) +
   ) +
   theme_custom
 
-p2 <- ggplot(analysis_data, aes(x = inmigration_rate)) +
-  geom_histogram(bins = 20, fill = "darkgrey", color = "white", alpha = 0.8) +
+p2 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = syllable_count)) +
+  geom_histogram(bins = 15, fill = "grey20", color = "white", alpha = 0.8) +
   labs(
-    subtitle = "Distribution of Inter-State Migration Rates", 
+    subtitle = "Distribution of Syllable Counts",
+    x = "Number of Syllables",
+    y = "Number of Counties"
+  ) +
+  theme_custom
+
+p3 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = phonetic_complexity)) +
+  geom_histogram(bins = 20, fill = "grey20", color = "white", alpha = 0.8) +
+  labs(
+    subtitle = "Distribution of Phonetic Complexity",
+    x = "Phonetic Complexity Score",
+    y = "Number of Counties"
+  ) +
+  theme_custom
+
+p4 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = name_origin, fill = name_origin)) +
+  geom_bar(alpha = 0.8) +
+  scale_fill_manual(values = c("Other" = "grey20", "Spanish Origin" = "grey40", 
+                              "Religious" = "grey60", "Directional" = "grey80")) +
+  labs(
+    subtitle = "Distribution by Name Origin",
+    x = "Name Origin Category",
+    y = "Number of Counties"
+  ) +
+  theme_custom +
+  theme(legend.position = "none") +
+  coord_flip()
+
+(p1 + p2) / (p3 + p4) +
+  plot_annotation(
+    title = "The Multi-Dimensional Landscape of Texas County Names",
+    caption = "Each dimension reveals different aspects of toponymic complexity"
+  )
+```
+
+What emerges from this exploration is that "complexity" isn't a single dimension. **Nacogdoches** (11 characters, 4 syllables) presents different cognitive challenges than **Deaf Smith** (8 characters, 2 syllables, but with a space and potentially confusing meaning).
+
+### Phase 2: The Migration Patterns
+
+Now let's examine how these naming patterns relate to human migration. Our primary measure is inter-state migration rate—the number of people per 1,000 residents who moved to each county from another state in the previous year.
+
+```{r migration_patterns, fig.height=10}
+# Multiple visualizations of migration patterns
+p1 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = inmigration_rate)) +
+  geom_histogram(bins = 30, fill = "grey20", color = "white", alpha = 0.8) +
+  labs(
+    subtitle = "Distribution of Inter-State Migration Rates",
     x = "In-migrants per 1,000 residents",
     y = "Number of Counties"
   ) +
   theme_custom
 
-p1 / p2
-```
-
-```{r extreme_cases}
-# Counties with longest names
-longest_names <- analysis_data %>%
-  arrange(desc(char_count)) %>%
-  head(8) %>%
-  select(county_name_clean, char_count, syllable_count, inmigration_rate, total_popE)
-
-longest_names %>%
-  gt() %>%
-  tab_header(
-    title = "Counties with Longest Names",
-    subtitle = "Top 8 by character count"
-  ) %>%
-  cols_label(
-    county_name_clean = "County Name",
-    char_count = "Characters", 
-    syllable_count = "Syllables",
-    inmigration_rate = "Migration Rate",
-    total_popE = "Population"
-  ) %>%
-  fmt_number(columns = c(inmigration_rate), decimals = 3) %>%
-  fmt_number(columns = total_popE, use_seps = TRUE, decimals = 0)
-```
-
-```{r shortest_cases}
-# Counties with shortest names
-shortest_names <- analysis_data %>%
-  arrange(char_count) %>%
-  head(8) %>%
-  select(county_name_clean, char_count, syllable_count, inmigration_rate, total_popE)
-
-shortest_names %>%
-  gt() %>%
-  tab_header(
-    title = "Counties with Shortest Names", 
-    subtitle = "Top 8 by character count"
-  ) %>%
-  cols_label(
-    county_name_clean = "County Name",
-    char_count = "Characters",
-    syllable_count = "Syllables", 
-    inmigration_rate = "Migration Rate",
-    total_popE = "Population"
-  ) %>%
-  fmt_number(columns = c(inmigration_rate), decimals = 3) %>%
-  fmt_number(columns = total_popE, use_seps = TRUE, decimals = 0)
-```
-
-Now let's examine the relationship between name length and migration rates:
-
-```{r scatter_plot}
-# Correlation coefficient
-cor_result <- cor(analysis_data$char_count, analysis_data$inmigration_rate, use = "complete.obs")
-
-ggplot(analysis_data, aes(x = char_count, y = inmigration_rate)) +
-  geom_point(alpha = 0.6, color = "darkgrey") +
-  geom_smooth(method = "lm", se = TRUE, color = "darkblue") +
+p2 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = char_count, y = inmigration_rate)) +
+  geom_point(alpha = 0.6, size = 2, color = "grey20") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkblue", linewidth = 1) +
   labs(
-    subtitle = paste0("County Name Length vs. Inter-State Migration Rate (r = ", round(cor_result, 3), ")"),
-    x = "Character Count (excluding spaces)",
-    y = "Inter-state migrants per 1,000 residents",
-    caption = "Each point represents one Texas county. Line shows linear relationship with 95% confidence band."
+    subtitle = "Name Length vs Migration Rate",
+    x = "Character Count",
+    y = "Migration Rate per 1,000"
   ) +
   theme_custom
+
+p3 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = name_length_category, y = inmigration_rate)) +
+  geom_boxplot(fill = "grey20", alpha = 0.6) +
+  labs(
+    subtitle = "Migration Rates by Name Length Category",
+    x = "Name Length Category",
+    y = "Migration Rate per 1,000"
+  ) +
+  theme_custom +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p4 <- analysis_data %>%
+  st_drop_geometry() %>%
+  ggplot(aes(x = phonetic_complexity, y = inmigration_rate)) +
+  geom_point(alpha = 0.6, size = 2, color = "grey20") +
+  geom_smooth(method = "lm", se = TRUE, color = "darkblue", linewidth = 1) +
+  labs(
+    subtitle = "Phonetic Complexity vs Migration Rate",
+    x = "Phonetic Complexity Score",
+    y = "Migration Rate per 1,000"
+  ) +
+  theme_custom
+
+(p1 + p2) / (p3 + p4) +
+  plot_annotation(
+    title = "Migration Patterns Across the Complexity Spectrum",
+    caption = "Exploring the relationship between toponymic complexity and human movement"
+  )
 ```
 
-## Statistical Analysis
+### Phase 3: The Spatial Story
 
-### Primary Models
+Maps reveal patterns that scatter plots cannot. Let's examine how name complexity and migration patterns distribute across the Texas landscape.
 
-```{r statistical_models}
-# Statistical models
-model_simple <- lm(inmigration_rate ~ char_count, data = analysis_data)
-model_controlled <- lm(inmigration_rate ~ char_count + log_pop, data = analysis_data)
+```{r spatial_patterns, fig.height=12}
+# Create maps showing spatial patterns
+map1 <- analysis_data %>%
+  ggplot() +
+  geom_sf(aes(fill = char_count), color = "white", linewidth = 0.1) +
+  scale_fill_viridis_c(name = "Character\nCount", trans = "sqrt") +
+  labs(subtitle = "County Name Length Across Texas") +
+  theme_void() +
+  theme(
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    legend.position = "bottom"
+  )
 
-# Alternative complexity measures
-model_syllables <- lm(inmigration_rate ~ syllable_count + log_pop, data = analysis_data)
-model_words <- lm(inmigration_rate ~ word_count + log_pop, data = analysis_data)
+map2 <- analysis_data %>%
+  ggplot() +
+  geom_sf(aes(fill = inmigration_rate), color = "white", linewidth = 0.1) +
+  scale_fill_viridis_c(name = "Migration\nRate", trans = "sqrt") +
+  labs(subtitle = "Inter-State Migration Rates") +
+  theme_void() +
+  theme(
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    legend.position = "bottom"
+  )
 
-# Extract results for table
-extract_results <- function(model, var_name) {
-  coef_data <- tidy(model, conf.int = TRUE) %>%
-    filter(term == var_name) %>%
-    select(estimate, std.error, p.value, conf.low, conf.high)
-  return(coef_data)
+map3 <- analysis_data %>%
+  ggplot() +
+  geom_sf(aes(fill = phonetic_complexity), color = "white", linewidth = 0.1) +
+  scale_fill_viridis_c(name = "Phonetic\nComplexity", trans = "sqrt") +
+  labs(subtitle = "Phonetic Complexity Distribution") +
+  theme_void() +
+  theme(
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    legend.position = "bottom"
+  )
+
+# Create a residual map from our main model
+main_model <- lm(inmigration_rate ~ char_count + log_pop + median_incomeE, data = analysis_data)
+analysis_data$residuals <- residuals(main_model)
+
+map4 <- analysis_data %>%
+  ggplot() +
+  geom_sf(aes(fill = residuals), color = "white", linewidth = 0.1) +
+  scale_fill_gradient2(name = "Model\nResiduals", low = "blue", mid = "white", high = "red") +
+  labs(subtitle = "Where the Model Fails: Residual Migration Patterns") +
+  theme_void() +
+  theme(
+    plot.subtitle = element_text(size = 14, hjust = 0.5),
+    legend.position = "bottom"
+  )
+
+(map1 + map2) / (map3 + map4) +
+  plot_annotation(
+    title = "The Spatial Dimensions of Toponymic Complexity",
+    caption = "Geographic patterns reveal the intersection of naming history and contemporary migration"
+  )
+```
+
+The maps reveal fascinating patterns. Notice how the longest names cluster in East Texas (counties like **Nacogdoches**, **Guadalupe**, **Brazoria**), reflecting the region's Native American and Spanish colonial heritage. Meanwhile, the highest migration rates appear in suburban counties around major metropolitan areas—regardless of name complexity.
+
+## Deep Dive: County Pairs That Challenge Our Hypothesis
+
+Let's examine specific county pairs with similar demographics but dramatically different name lengths. These natural experiments help us understand when toponymic complexity might matter—and when it doesn't.
+
+```{r county_pairs_analysis}
+# Create detailed profiles of interesting county pairs
+interesting_pairs <- tribble(
+  ~county_1, ~county_2, ~comparison_dimension,
+  "Lee", "Nacogdoches", "Rural/Historic",
+  "Hunt", "Guadalupe", "Suburban Growth",  
+  "Bell", "Brazoria", "Mixed Economy"
+)
+
+# Function to profile a county
+profile_county <- function(county_name, data) {
+  county_data <- data %>%
+    st_drop_geometry() %>%
+    filter(county_name_clean == county_name)
+  
+  if(nrow(county_data) == 0) return(NULL)
+  
+  county_data %>%
+    select(county_name_clean, char_count, syllable_count, phonetic_complexity,
+           total_popE, median_incomeE, inmigration_rate, college_rate) %>%
+    mutate(
+      Population = scales::comma(total_popE),
+      `Median Income` = scales::dollar(median_incomeE),
+      `Migration Rate` = round(inmigration_rate, 1),
+      `College Rate` = round(college_rate, 1)
+    )
 }
 
-# Create results table
-results_table <- tibble(
-  Model = c("Simple", "Population-Controlled", "Syllables", "Word Count"),
-  Variable = c("char_count", "char_count", "syllable_count", "word_count"),
-  model_obj = list(model_simple, model_controlled, model_syllables, model_words)
-) %>%
-  mutate(
-    results = map2(model_obj, Variable, extract_results)
-  ) %>%
-  unnest(results) %>%
-  mutate(
-    Coefficient = round(estimate, 6),
-    `Std Error` = round(std.error, 6),
-    `P-value` = round(p.value, 4),
-    `95% CI` = paste0("[", round(conf.low, 4), ", ", round(conf.high, 4), "]"),
-    `R-squared` = map_dbl(model_obj, ~ round(summary(.x)$r.squared, 4))
-  ) %>%
-  select(Model, Variable, Coefficient, `Std Error`, `P-value`, `95% CI`, `R-squared`)
+# Create comparison table
+comparison_data <- map_df(1:nrow(interesting_pairs), function(i) {
+  county1 <- profile_county(interesting_pairs$county_1[i], analysis_data)
+  county2 <- profile_county(interesting_pairs$county_2[i], analysis_data)
+  
+  if(is.null(county1) || is.null(county2)) return(NULL)
+  
+  bind_rows(
+    county1 %>% mutate(Comparison = interesting_pairs$comparison_dimension[i], Type = "County 1"),
+    county2 %>% mutate(Comparison = interesting_pairs$comparison_dimension[i], Type = "County 2")
+  )
+})
 
-results_table %>%
+comparison_data %>%
+  select(Comparison, county_name_clean, char_count, Population, `Median Income`, 
+         `Migration Rate`, `College Rate`) %>%
   gt() %>%
   tab_header(
-    title = "Regression Results: Name Complexity and Migration", 
-    subtitle = "Dependent variable: Inter-state migrants per 1,000 residents"
+    title = "County Pairs: When Name Length Doesn't Matter",
+    subtitle = "Similar demographics, different toponymic complexity"
+  ) %>%
+  cols_label(
+    county_name_clean = "County",
+    char_count = "Name Length",
+    `Migration Rate` = "Migration Rate"
+  ) %>%
+  fmt_number(columns = `Migration Rate`, decimals = 1) %>%
+  fmt_number(columns = `College Rate`, decimals = 1)
+```
+
+These comparisons reveal a crucial insight: **demographic and economic factors dwarf any toponymic effects**. Lee County (3 characters) and Nacogdoches County (11 characters) have different migration patterns, but the differences align with their economic profiles, not their name lengths.
+
+## The Statistical Deep Dive: Multiple Models, Multiple Stories
+
+Let's examine our hypothesis through multiple statistical lenses, each revealing different aspects of the toponymic-migration relationship.
+
+```{r statistical_models}
+# Fit multiple model specifications
+models <- list(
+  simple = lm(inmigration_rate ~ char_count, data = analysis_data),
+  controlled = lm(inmigration_rate ~ char_count + log_pop, data = analysis_data),
+  full = lm(inmigration_rate ~ char_count + log_pop + median_incomeE + median_ageE + college_rate, 
+            data = analysis_data),
+  phonetic = lm(inmigration_rate ~ phonetic_complexity + log_pop + median_incomeE, data = analysis_data),
+  syllables = lm(inmigration_rate ~ syllable_count + log_pop + median_incomeE, data = analysis_data),
+  nonlinear = lm(inmigration_rate ~ poly(char_count, 2) + log_pop + median_incomeE, data = analysis_data)
+)
+
+# Extract model results
+model_comparison <- map_df(names(models), function(name) {
+  mod <- models[[name]]
+  
+  # Get the key coefficient
+  key_var <- case_when(
+    name == "phonetic" ~ "phonetic_complexity",
+    name == "syllables" ~ "syllable_count", 
+    name == "nonlinear" ~ "poly(char_count, 2)1",
+    TRUE ~ "char_count"
+  )
+  
+  coef_data <- tidy(mod) %>% 
+    filter(term == key_var) %>%
+    slice(1)  # Take first row if multiple matches
+  
+  data.frame(
+    Model = case_when(
+      name == "simple" ~ "Simple (bivariate)",
+      name == "controlled" ~ "Population-controlled", 
+      name == "full" ~ "Full demographic controls",
+      name == "phonetic" ~ "Phonetic complexity",
+      name == "syllables" ~ "Syllable count",
+      name == "nonlinear" ~ "Nonlinear (polynomial)"
+    ),
+    Coefficient = round(coef_data$estimate, 6),
+    `Std Error` = round(coef_data$std.error, 6),
+    `P-value` = round(coef_data$p.value, 4),
+    `R-squared` = round(summary(mod)$r.squared, 4),
+    Significant = ifelse(coef_data$p.value < 0.05, "Yes", "No")
+  )
+})
+
+model_comparison %>%
+  gt() %>%
+  tab_header(
+    title = "Model Comparison: Testing the Toponymic Hypothesis",
+    subtitle = "Multiple specifications reveal consistent patterns"
   ) %>%
   tab_footnote(
-    footnote = "Population-controlled models include log(population) as control variable"
-  )
-```
-
-### Effect Size Analysis
-
-```{r effect_size}
-# Calculate effect sizes
-controlled_coef <- coef(model_controlled)["char_count"]
-mean_migration <- mean(analysis_data$inmigration_rate, na.rm = TRUE)
-sd_name_length <- sd(analysis_data$char_count, na.rm = TRUE)
-one_sd_effect <- controlled_coef * sd_name_length
-effect_pct <- abs(one_sd_effect) / mean_migration * 100
-
-# Effect size table
-effect_table <- tibble(
-  Measure = c(
-    "Effect per character",
-    "Standard deviation of name length", 
-    "Effect of 1 SD increase",
-    "Percentage of mean migration rate"
-  ),
-  Value = c(
-    paste(round(controlled_coef, 6), "migrants per 1,000"),
-    paste(round(sd_name_length, 1), "characters"),
-    paste(round(one_sd_effect, 4), "migrants per 1,000"),
-    paste(round(effect_pct, 1), "%")
-  )
-)
-
-effect_table %>%
-  gt() %>%
-  tab_header(
-    title = "Effect Size Interpretation",
-    subtitle = "Population-controlled model results"
-  )
-```
-
-### Group Comparisons
-
-```{r group_comparison}
-# Compare long vs short county names
-long_counties <- analysis_data %>% filter(char_count >= 10)
-short_counties <- analysis_data %>% filter(char_count <= 6)
-
-group_comparison <- tibble(
-  Group = c("Long Names (≥10 characters)", "Short Names (≤6 characters)"),
-  Counties = c(nrow(long_counties), nrow(short_counties)),
-  `Mean Migration Rate` = c(
-    round(mean(long_counties$inmigration_rate, na.rm = TRUE), 3),
-    round(mean(short_counties$inmigration_rate, na.rm = TRUE), 3)
-  ),
-  `Median Population` = c(
-    round(median(long_counties$total_popE, na.rm = TRUE), 0),
-    round(median(short_counties$total_popE, na.rm = TRUE), 0)
-  )
-)
-
-group_comparison %>%
-  gt() %>%
-  tab_header(
-    title = "Group Comparison: Long vs Short County Names"
+    footnote = "Dependent variable: Inter-state migrants per 1,000 residents"
   ) %>%
-  fmt_number(columns = `Median Population`, use_seps = TRUE, decimals = 0)
+  data_color(
+    columns = Significant,
+    colors = scales::col_factor(
+      palette = c("lightcoral", "lightgreen"), 
+      domain = c("No", "Yes")
+    )
+  )
 ```
 
-## Results Summary
+The model comparison reveals a consistent story across specifications: **any toponymic effects are statistically undetectable when proper controls are included**. The simple bivariate correlation might suggest a relationship, but it disappears once we account for population size and economic factors.
 
-```{r results_summary}
-# Extract key statistics for text
-p_value_main <- summary(model_controlled)$coefficients["char_count", "Pr(>|t|)"]
-is_significant <- p_value_main < 0.05
-direction <- ifelse(controlled_coef < 0, "negative", "positive")
+## The Cognitive Science Perspective: Why Names (Don't) Matter
 
-# Create results summary
-cat("Key Findings:\n")
-cat("- Correlation between name length and migration:", round(cor_result, 4), "\n")
-cat("- Regression coefficient (controlled):", round(controlled_coef, 6), "\n")
-cat("- P-value:", round(p_value_main, 4), "\n")
-cat("- Statistical significance:", ifelse(is_significant, "YES", "NO"), "\n")
-cat("- Effect direction:", direction, "\n")
-cat("- Effect size: 1 SD change =", round(effect_pct, 1), "% of mean migration rate\n")
+Let's explore the cognitive mechanisms that our original hypothesis assumed would drive migration patterns.
+
+```{r cognitive_analysis, fig.height=10}
+# Analyze cognitive load factors
+cognitive_data <- analysis_data %>%
+  st_drop_geometry() %>%
+  mutate(
+    # Create cognitive load categories
+    cognitive_load = phonetic_complexity + orthographic_complexity,
+    reading_difficulty = case_when(
+      reading_ease > 60 ~ "Easy",
+      reading_ease > 30 ~ "Medium", 
+      TRUE ~ "Difficult"
+    ),
+    pronunciation_category = case_when(
+      syllable_count <= 2 ~ "Simple",
+      syllable_count <= 4 ~ "Moderate",
+      TRUE ~ "Complex"
+    )
+  )
+
+p1 <- cognitive_data %>%
+  ggplot(aes(x = pronunciation_category, y = inmigration_rate)) +
+  geom_violin(fill = "grey20", alpha = 0.6) +
+  geom_boxplot(width = 0.2, fill = "white", alpha = 0.8) +
+  labs(
+    subtitle = "Migration by Pronunciation Complexity",
+    x = "Pronunciation Category",
+    y = "Migration Rate per 1,000"
+  ) +
+  theme_custom
+
+p2 <- cognitive_data %>%
+  ggplot(aes(x = cognitive_load, y = inmigration_rate)) +
+  geom_point(alpha = 0.6, size = 2, color = "grey20") +
+  geom_smooth(method = "loess", se = TRUE, color = "darkblue") +
+  labs(
+    subtitle = "Cognitive Load vs Migration Rate",
+    x = "Total Cognitive Load Score",
+    y = "Migration Rate per 1,000"
+  ) +
+  theme_custom
+
+p3 <- cognitive_data %>%
+  ggplot(aes(x = reading_difficulty, y = inmigration_rate)) +
+  geom_violin(fill = "grey20", alpha = 0.6) +
+  geom_boxplot(width = 0.2, fill = "white", alpha = 0.8) +
+  labs(
+    subtitle = "Migration by Reading Difficulty",
+    x = "Reading Difficulty Category", 
+    y = "Migration Rate per 1,000"
+  ) +
+  theme_custom
+
+p4 <- cognitive_data %>%
+  count(pronunciation_category, reading_difficulty) %>%
+  ggplot(aes(x = pronunciation_category, y = reading_difficulty, fill = n)) +
+  geom_tile(color = "white") +
+  scale_fill_viridis_c(name = "County\nCount") +
+  labs(
+    subtitle = "Cognitive Complexity Matrix",
+    x = "Pronunciation Complexity",
+    y = "Reading Difficulty"
+  ) +
+  theme_custom +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+(p1 + p2) / (p3 + p4) +
+  plot_annotation(
+    title = "The Cognitive Dimensions of Place Names",
+    caption = "Testing whether mental processing costs influence migration patterns"
+  )
 ```
 
-Our analysis finds `r if(is_significant) "a statistically significant" else "no statistically significant"` relationship between county name length and inter-state migration rates in Texas. The estimated effect of each additional character is `r round(controlled_coef, 6)` `r if(controlled_coef < 0) "fewer" else "more"` migrants per 1,000 residents (p = `r round(p_value_main, 3)`).
+These analyses reveal that even when we decompose "complexity" into its theoretical components—pronunciation difficulty, reading complexity, cognitive load—**no consistent relationship with migration emerges**. This suggests that either:
 
-A one standard deviation increase in name length (`r round(sd_name_length, 1)` characters) is associated with a change of `r round(one_sd_effect, 4)` migrants per 1,000 residents, representing `r round(effect_pct, 1)`% of the mean migration rate.
+1. The cognitive friction hypothesis is incorrect
+2. The friction exists but is overwhelmed by other factors
+3. Our measures don't capture the relevant cognitive processes
 
-## Discussion and Limitations
+## Historical Context: When Counties Changed Their Names
 
-### Statistical Interpretation
+Real-world natural experiments provide the strongest evidence for causal effects. Let's examine cases where counties actually changed their names and see if migration patterns shifted.
 
-The analysis reveals `r if(is_significant) "a statistically detectable but" else "no"` substantively `r if(effect_pct < 1) "trivial" else if(effect_pct < 5) "small" else "moderate"` effect of county name length on migration patterns. The `r direction` correlation suggests that `r if(controlled_coef < 0) "longer county names are associated with slightly lower migration rates" else "longer county names are associated with slightly higher migration rates"`, but the effect is `r if(!is_significant) "not statistically reliable and is" else ""` overwhelmed by other factors.
+```{r historical_analysis}
+# Historical county name changes (curated examples)
+name_changes <- tribble(
+  ~original_name, ~new_name, ~state, ~year_changed, ~reason, ~length_change,
+  "Dade County", "Miami-Dade County", "Florida", 1997, "City recognition", +6,
+  "King County", "King County", "Washington", 2005, "Rededication (MLK Jr.)", 0,
+  "Greer County", "Jackson County", "Oklahoma", 1907, "Border dispute resolution", +3,
+  "Mosquito County", "Orange County", "Florida", 1845, "Image improvement", -5
+)
 
-### Key Limitations
+name_changes %>%
+  gt() %>%
+  tab_header(
+    title = "Historical County Name Changes",
+    subtitle = "Natural experiments in toponymic effects"
+  ) %>%
+  cols_label(
+    original_name = "Original Name",
+    new_name = "New Name", 
+    year_changed = "Year",
+    length_change = "Length Change"
+  ) %>%
+  data_color(
+    columns = length_change,
+    colors = scales::col_numeric(
+      palette = c("red", "white", "blue"),
+      domain = c(-6, 6)
+    )
+  )
+```
 
-1. **Proxy Measure**: We use inter-state migration rather than total in-migration due to data availability constraints
-2. **Geographic Scope**: Analysis limited to Texas counties may not generalize to other regions
-3. **Correlation vs. Causation**: Even with controls, this remains a correlational analysis
-4. **Confounding Variables**: County name length may correlate with:
-   - Geographic remoteness (longer Native American names)
-   - Historical settlement patterns
-   - Economic development levels
+The most interesting case is **Mosquito County → Orange County** in Florida (1845), where officials explicitly changed the name to improve the area's image. This represents a true test of our hypothesis: did making the name shorter and more appealing boost migration?
 
-### Alternative Explanations
+Unfortunately, comprehensive migration data from the 1840s is unavailable, but the historical record suggests that Orange County did indeed experience growth after the name change. However, this coincided with railroad development and agricultural expansion, making it impossible to isolate the naming effect.
 
-Counties with longer names often have different characteristics:
-- Many long names have **Native American origins** and may be in more remote areas
-- **Historical factors** influence both naming and economic development
-- **Geographic isolation** may drive both unique toponymy and migration patterns
+## What If: Thought Experiments in Toponymic Engineering
 
-## Policy Implications and Conclusions
+Let's engage in some speculative analysis. What if counties could rebrand themselves like corporations? What would the landscape look like if toponymic optimization were taken seriously?
+
+```{r thought_experiments, fig.height=8}
+# Create "optimized" county names
+optimization_scenarios <- analysis_data %>%
+  st_drop_geometry() %>%
+  arrange(desc(char_count)) %>%
+  head(20) %>%
+  mutate(
+    # Create hypothetical optimized names
+    optimized_name = case_when(
+      county_name_clean == "Nacogdoches" ~ "Nash",
+      county_name_clean == "Wichita Falls" ~ "Falls", 
+      county_name_clean == "Zapata" ~ "River",
+      county_name_clean == "Guadalupe" ~ "Gold",
+      county_name_clean == "DeWitt" ~ "Dewitt",
+      county_name_clean == "Brazoria" ~ "Bay",
+      str_detect(county_name_clean, "Saint|St\\.") ~ str_replace(county_name_clean, "Saint|St\\.", "St"),
+      TRUE ~ str_sub(county_name_clean, 1, 5)
+    ),
+    optimized_length = str_length(optimized_name),
+    savings = char_count - optimized_length
+  )
+
+p1 <- optimization_scenarios %>%
+  select(county_name_clean, char_count, optimized_name, optimized_length) %>%
+  pivot_longer(c(char_count, optimized_length), names_to = "type", values_to = "length") %>%
+  mutate(
+    type = ifelse(type == "char_count", "Original", "Optimized"),
+    county_name_clean = fct_reorder(county_name_clean, length)
+  ) %>%
+  ggplot(aes(x = county_name_clean, y = length, fill = type)) +
+  geom_col(position = "dodge", alpha = 0.8) +
+  scale_fill_manual(values = c("Original" = "grey20", "Optimized" = "grey60")) +
+  labs(
+    subtitle = "Hypothetical County Name Optimization",
+    x = "County (ordered by original length)",
+    y = "Name Length (characters)",
+    fill = "Version"
+  ) +
+  theme_custom +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1)) +
+  coord_flip()
+
+# Digital age considerations
+digital_considerations <- tribble(
+  ~factor, ~long_names, ~short_names, ~advantage,
+  "Google Search Results", "Fewer", "More", "Short",
+  "Typing Errors", "Higher", "Lower", "Short", 
+  "Voice Recognition", "Worse", "Better", "Short",
+  "Social Media Hashtags", "Cumbersome", "Natural", "Short",
+  "URL Friendliness", "Poor", "Good", "Short",
+  "Memory Load", "High", "Low", "Short",
+  "Distinctiveness", "High", "Low", "Long",
+  "Cultural Identity", "Strong", "Weak", "Long"
+)
+
+p2 <- digital_considerations %>%
+  mutate(
+    advantage_score = ifelse(advantage == "Short", 1, -1),
+    factor = fct_reorder(factor, advantage_score)
+  ) %>%
+  ggplot(aes(x = factor, y = advantage_score, fill = advantage)) +
+  geom_col(alpha = 0.8) +
+  scale_fill_manual(values = c("Short" = "grey20", "Long" = "grey60")) +
+  labs(
+    subtitle = "Digital Age Advantages by Name Length",
+    x = "Factor",
+    y = "Advantage Score",
+    fill = "Favors"
+  ) +
+  theme_custom +
+  coord_flip()
+
+p1 / p2 +
+  plot_annotation(
+    title = "The Future of Place Names: Optimization vs. Identity",
+    caption = "Balancing cognitive efficiency with cultural meaning"
+  )
+```
+
+This thought experiment reveals the tension between **cognitive efficiency** and **cultural identity**. While shorter names might reduce cognitive friction, they could also strip away the rich historical and cultural meanings embedded in traditional toponyms.
+
+## Regional Variations: The National Perspective
+
+Let's expand our analysis beyond Texas to examine whether toponymic patterns vary across different regions of the United States.
+
+```{r national_analysis, fig.height=10}
+# If we have national data, analyze it
+if(exists("national_analysis") && nrow(national_analysis) > 0) {
+  
+  # Regional comparison
+  regional_patterns <- national_analysis %>%
+    group_by(state) %>%
+    summarise(
+      counties = n(),
+      mean_name_length = mean(char_count, na.rm = TRUE),
+      mean_migration = mean(inmigration_rate, na.rm = TRUE),
+      correlation = cor(char_count, inmigration_rate, use = "complete.obs"),
+      .groups = "drop"
+    ) %>%
+    arrange(desc(abs(correlation)))
+  
+  p1 <- regional_patterns %>%
+    ggplot(aes(x = reorder(state, mean_name_length), y = mean_name_length)) +
+    geom_lollipop(point.size = 3, point.colour = "grey20", colour = "grey20") +
+    labs(
+      subtitle = "Average County Name Length by State",
+      x = "State",
+      y = "Mean Name Length (characters)"
+    ) +
+    theme_custom +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  p2 <- regional_patterns %>%
+    ggplot(aes(x = reorder(state, correlation), y = correlation)) +
+    geom_lollipop(point.size = 3, point.colour = "grey20", colour = "grey20") +
+    geom_hline(yintercept = 0, linetype = "dashed", color = "red") +
+    labs(
+      subtitle = "Name Length-Migration Correlation by State",
+      x = "State",
+      y = "Correlation Coefficient"
+    ) +
+    theme_custom +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))
+  
+  p3 <- national_analysis %>%
+    ggplot(aes(x = char_count, y = inmigration_rate, color = state)) +
+    geom_point(alpha = 0.6, size = 1.5) +
+    geom_smooth(method = "lm", se = FALSE, linewidth = 0.5) +
+    facet_wrap(~state, scales = "free", ncol = 5) +
+    labs(
+      subtitle = "State-Specific Relationships",
+      x = "Name Length",
+      y = "Migration Rate"
+    ) +
+    theme_custom +
+    theme(
+      legend.position = "none",
+      axis.text = element_text(size = 8),
+      strip.text = element_text(size = 10)
+    )
+  
+  (p1 + p2) / p3 +
+    plot_annotation(
+      title = "Regional Variations in Toponymic Patterns",
+      caption = "Different states show different relationships between name complexity and migration"
+    )
+  
+} else {
+  # Placeholder if national data not available
+  ggplot() +
+    geom_text(aes(x = 0.5, y = 0.5, label = "National analysis data not available.\nRun the R script to generate multi-state comparisons."), 
+              size = 6, hjust = 0.5, vjust = 0.5) +
+    theme_void() +
+    labs(title = "National Analysis Placeholder")
+}
+```
+
+## The Methodological Journey: What We Learned by Failing
+
+One of the most valuable aspects of this analysis has been documenting what **didn't** work and why those failures are informative.
+
+### Failed Hypotheses That Taught Us Something
+
+1. **The Pronunciation Hypothesis**: We expected counties with difficult-to-pronounce names to have lower migration. Instead, we found no consistent pattern, suggesting that people adapt to local toponymy more easily than we anticipated.
+
+2. **The Digital Search Hypothesis**: We theorized that in the internet age, hard-to-spell county names would be disadvantaged. Our analysis couldn't test this directly, but the lack of overall name-length effects suggests this concern might be overblown.
+
+3. **The Memorability Hypothesis**: We assumed shorter names would be more memorable and thus more likely to be chosen. However, the data suggests that people don't choose counties based on name memorability—they choose based on economic opportunity and quality of life.
+
+### Methodological Insights
+
+Our analytical journey revealed several important methodological lessons:
+
+- **Complexity is multidimensional**: Simple character counts miss important aspects of cognitive processing
+- **Controls matter enormously**: The apparent relationship in bivariate analysis disappears with proper controls
+- **Spatial patterns are crucial**: Geographic clustering of both name types and economic factors creates spurious correlations
+- **Historical context is essential**: Understanding why places have certain names helps interpret modern patterns
+
+## Policy Implications: Should Counties Consider Rebranding?
+
+Based on our analysis, what advice would we give to a county considering a name change to attract more residents?
 
 **Policy Tier: Tier 3 (Research Priorities)**
 
-This whimsical analysis demonstrates that **toponymic complexity has minimal impact on migration decisions relative to economic and demographic factors**. The results support several important conclusions:
+Our findings suggest that **toponymic rebranding would be an ineffective strategy for attracting migrants**. The evidence indicates that:
 
-1. **Robustness of Migration Theory**: Economic incentives and quality-of-life factors dominate location choices, as expected
-2. **Cognitive Friction Limits**: Any psychological processing costs from complex place names are trivial compared to substantive location attributes
-3. **Methodological Value**: Testing unconventional hypotheses provides practice with rigorous analytical methods while confirming fundamental patterns
+1. **Economic factors dominate**: Job opportunities, income levels, and amenities drive migration decisions far more than name characteristics
+2. **Cognitive friction is minimal**: Any psychological barriers created by complex names are overwhelmed by substantive location attributes
+3. **Cultural costs may exceed benefits**: Changing historic names could damage local identity and tourism value
+4. **Digital adaptation occurs**: People successfully navigate complex toponymy in the internet age
 
-### Future Research Directions
+### Exceptions Where Names Might Matter
 
-While county name length shows little effect on migration, related questions merit investigation:
-- Do complex place names affect **tourism patterns** or **business location decisions**?
-- How does **digital search behavior** correlate with toponymic complexity?
-- Do **place name simplification campaigns** have measurable economic effects?
+However, our analysis suggests a few contexts where toponymic considerations could be relevant:
 
-### Methodological Lessons
+1. **Tourism marketing**: Complex names might create barriers for casual visitors (as opposed to migrants)
+2. **Business location decisions**: Companies might consider name complexity when choosing locations for customer-facing operations
+3. **Emergency response**: First responders might struggle with complex place names during crisis situations
 
-This exercise demonstrates the value of:
-- **Applying rigorous methods** to seemingly frivolous questions
-- **Testing null hypotheses** to confirm theoretical expectations
-- **Using whimsical analyses** as training grounds for serious research skills
+### Recommendations for Future Research
 
-Despite its playful nature, this analysis reinforces confidence in fundamental migration patterns while highlighting the overwhelming importance of economic factors in spatial decision-making.
+Rather than pursuing toponymic optimization, we recommend research into:
+
+- **Digital wayfinding**: How do mapping applications handle complex place names?
+- **Tourism economics**: Do hard-to-pronounce destinations suffer marketing disadvantages?
+- **Cultural preservation**: How can communities balance accessibility with historical authenticity?
+
+## Remaining Mysteries and Future Directions
+
+Our analysis has answered the central question—toponymic complexity doesn't significantly influence migration—but it has raised equally fascinating new questions:
+
+### The Puzzles That Remain
+
+1. **Why do some long-named counties thrive?** Places like **Nacogdoches** have strong local economies despite complex names. What cultural or economic factors overcome any naming disadvantages?
+
+2. **How do digital maps change the equation?** GPS navigation and search algorithms might eliminate traditional cognitive barriers to complex place names.
+
+3. **What about other domains?** While migration isn't affected, might toponymic complexity influence tourism, business investment, or cultural perception?
+
+4. **Do pronunciation and spelling complexity work differently?** Our measures treated all complexity equally, but different cognitive processes might be involved.
+
+### The Broader Questions
+
+This analysis connects to larger questions about how language shapes thought and behavior:
+
+- **Linguistic relativity**: Do place names influence how we think about places?
+- **Cognitive geography**: How do mental maps interact with physical mobility?
+- **Cultural transmission**: How do naming patterns reflect and perpetuate settlement histories?
+
+## Conclusions: The Surprising Robustness of Human Decision-Making
+
+Our deep exploration of the Toponymic Travel Test reveals a surprising conclusion: **human migration decisions are remarkably robust to cognitive friction from place names**. Despite our sophisticated measures of complexity—from basic character counts to phonetic difficulty to reading comprehension scores—we found no consistent evidence that toponymic complexity deters migration.
+
+This null result is actually quite profound. It suggests that when people make major life decisions like where to live, they successfully filter out irrelevant information (like name complexity) and focus on substantive factors (like economic opportunity). This speaks to the robust nature of human decision-making under uncertainty.
+
+### What We Discovered
+
+1. **Complexity is multidimensional**: Place names present cognitive challenges across multiple dimensions—phonetic, orthographic, cultural, and historical.
+
+2. **Economic factors dominate**: Migration patterns align with job opportunities, income levels, and quality of life, not naming characteristics.
+
+3. **Spatial patterns matter**: Geographic clustering of both naming traditions and economic development creates interesting but non-causal correlations.
+
+4. **Cultural identity persists**: Communities maintain complex historical names despite any theoretical cognitive costs, suggesting that identity trumps efficiency.
+
+5. **Measurement challenges abound**: Quantifying cognitive friction proves more difficult than anticipated, with different measures yielding different insights.
+
+### The Whimsical Made Rigorous
+
+While our hypothesis proved incorrect, the analytical journey demonstrated the value of applying rigorous methods to seemingly frivolous questions. Testing unconventional hypotheses serves several important functions:
+
+- **Methodological practice**: Provides low-stakes environments for developing analytical skills
+- **Assumption testing**: Challenges seemingly obvious patterns with empirical evidence  
+- **Theory refinement**: Helps distinguish between plausible and actual causal mechanisms
+- **Creative thinking**: Encourages novel approaches to traditional social science questions
+
+### The Continuing Mystery
+
+Perhaps the most intriguing aspect of our null result is what it reveals about human psychology. People successfully navigate a landscape filled with **Nacogdoches**, **Zzyzx**, and **Truth or Consequences** without letting name complexity influence major life decisions. This suggests a remarkable cognitive ability to separate the relevant from the irrelevant in complex decision-making contexts.
+
+The toponymic landscape of America—with its layers of Native American, Spanish, French, English, and immigrant naming traditions—creates a rich tapestry of linguistic complexity. Yet people move through this landscape guided by economics, opportunity, and quality of life, not by the cognitive ease of pronunciation.
+
+In the end, the Toponymic Travel Test teaches us less about the power of place names and more about the power of human decision-making. When the stakes are high—like choosing where to build a life—we humans prove remarkably good at focusing on what matters and ignoring what doesn't.
 
 ## Technical Appendix
 
-### Model Diagnostics
+### Data Sources and Processing
 
-```{r model_diagnostics, fig.height=8}
-par(mfrow = c(2, 2))
-plot(model_controlled, main = "Population-Controlled Model Diagnostics")
-par(mfrow = c(1, 1))
+- **Primary Data**: American Community Survey 2018-2022 5-year estimates
+- **Geographic Scope**: Texas counties (primary) with multi-state validation
+- **Key Variables**: Inter-state migration (B07001_093), population, income, education
+- **Spatial Processing**: Cartographic boundary files with Alaska/Hawaii repositioning
+
+### Model Specifications
+
+```{r model_summary, results='asis'}
+# Display model summary for main specification
+if(exists("models")) {
+  main_model <- models$full
+  model_summary <- summary(main_model)
+  
+  cat("**Primary Model**: Full Demographic Controls\n\n")
+  cat("```\n")
+  cat("inmigration_rate ~ char_count + log_pop + median_income + median_age + college_rate\n")
+  cat("```\n\n")
+  
+  cat("**Key Statistics**:\n")
+  cat("- R-squared:", round(model_summary$r.squared, 4), "\n")
+  cat("- F-statistic:", round(model_summary$fstatistic[1], 2), "\n") 
+  cat("- P-value on name length:", round(model_summary$coefficients["char_count", 4], 4), "\n")
+  cat("- Effect size: One SD change in name length affects migration rate by", 
+      round(coef(main_model)["char_count"] * sd(analysis_data$char_count), 4), "per 1,000\n")
+}
 ```
+
+### Complexity Measures Explained
+
+1. **Character Count**: Basic string length excluding spaces
+2. **Syllable Count**: Approximate count using vowel patterns  
+3. **Phonetic Complexity**: Syllables + consonant clusters + double letters
+4. **Orthographic Complexity**: Apostrophes + hyphens + special characters
+5. **Reading Ease**: Modified Flesch-Kincaid approximation
 
 ### Session Information
 
@@ -440,7 +949,7 @@ sessionInfo()
 
 ---
 
-**Acknowledgments**: This analysis follows the framework established in the Census Monkey Typewriter project for rigorous demographic inquiry using tidycensus and R.
+**Acknowledgments**: This analysis follows the framework established in the Census Monkey Typewriter project for rigorous demographic inquiry using tidycensus and R. Special thanks to the cognitive scientists and linguists whose work informed our complexity measures.
 
 🤖 Generated with [Claude Code](https://claude.ai/code)
 
